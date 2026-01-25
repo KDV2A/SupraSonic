@@ -62,18 +62,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func shouldShowSetup() -> Bool {
         // 1. If setup was never completed, ALWAYS show it
         let setupCompleted = UserDefaults.standard.bool(forKey: Constants.Keys.setupCompleted)
+        print("🚀 Onboarding debug: setupCompleted=\(setupCompleted)")
         if !setupCompleted {
             print("🚀 App: Onboarding never completed. Showing setup.")
             return true
         }
         
         // 2. Check system-level requirements
-        let hasPermissions = PermissionsManager.shared.checkMicrophonePermission() == .granted
+        let hasMic = PermissionsManager.shared.checkMicrophonePermission() == .granted
+        let hasAccessibility = PermissionsManager.shared.checkAccessibilityPermission()
         let hasModel = ModelManager.shared.hasAnyModel()
         let isInApplications = Bundle.main.bundleURL.path.hasPrefix("/Applications")
         
+        print("🚀 Onboarding debug: hasMic=\(hasMic), hasAccessibility=\(hasAccessibility), hasModel=\(hasModel), isInApplications=\(isInApplications)")
+        
         // 3. If everything is OK, don't show setup
-        if hasPermissions && hasModel && (isInApplications || !Bundle.main.bundleURL.path.contains(".dmg")) {
+        if hasMic && hasAccessibility && hasModel && (isInApplications || !Bundle.main.bundleURL.path.contains(".dmg")) {
+            print("🚀 App: All requirements met. Skipping setup.")
             return false
         }
         
