@@ -1,0 +1,20 @@
+# MacOS
+.DS_Store
+
+# Build artifacts
+build/
+*.dmg
+
+# Derived Data / Logs
+*.log
+crash_start.json
+
+# Temporary files
+*.tmp
+*.swp
+
+# Swift / Xcode (just in case)
+.build/
+Packages/
+Package.resolved
+.swiftpm/
