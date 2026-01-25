@@ -23,12 +23,8 @@ class ModelManager {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let baseDir = appSupport.appendingPathComponent("SupraSonic/models/huggingface.co/mlx-community")
         
-        // Check if any subdirectory exists (which would be a model)
-        if let contents = try? FileManager.default.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil) {
-            return contents.contains { $0.hasDirectoryPath }
-        }
-        
-        return false
+        let targetModelDir = baseDir.appendingPathComponent(Constants.targetModelName)
+        return FileManager.default.fileExists(atPath: targetModelDir.path)
     }
 }
 

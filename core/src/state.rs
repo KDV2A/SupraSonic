@@ -144,6 +144,73 @@ impl AppState {
     }
 }
 
+// --- Windows/C# Compatibility Layer ---
+
+#[cfg(any(target_os = "windows", feature = "csharp"))]
+mod c_api {
+    use super::*;
+    use std::sync::OnceLock;
+
+    static APP_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
+    static mut AUDIO_CALLBACK: Option<extern "C" fn(*const f32, u32)> = None;
+    static mut LEVEL_CALLBACK: Option<extern "C" fn(f32)> = None;
+
+    struct CSharpListener;
+    impl TranscriptionListener for CSharpListener {
+        fn on_audio_data(&self, audio_data: Vec<f32>) {
+            unsafe {
+                if let Some(cb) = AUDIO_CALLBACK {
+                    cb(audio_data.as_ptr(), audio_data.len() as u32);
+                }
+            }
+        }
+        fn on_level_changed(&self, level: f32) {
+            unsafe {
+                if let Some(cb) = LEVEL_CALLBACK {
+                    cb(level);
+                }
+            }
+        }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn suprasonic_init() {
+        let state = Arc::new(AppState::new());
+        state.set_listener(Box::new(CSharpListener));
+        let _ = APP_STATE.set(state);
+    }
+
+    #[no_mangle]
+    pub extern "C" fn suprasonic_set_audio_callback(cb: extern "C" fn(*const f32, u32)) {
+        unsafe { AUDIO_CALLBACK = Some(cb); }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn suprasonic_set_level_callback(cb: extern "C" fn(f32)) {
+        unsafe { LEVEL_CALLBACK = Some(cb); }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn suprasonic_start_recording() -> i32 {
+        if let Some(state) = APP_STATE.get() {
+            match state.start_recording() {
+                Ok(_) => 0,
+                Err(_) => -1,
+            }
+        } else { -2 }
+    }
+
+    #[no_mangle]
+    pub extern "C" fn suprasonic_stop_recording() -> i32 {
+        if let Some(state) = APP_STATE.get() {
+            match state.stop_recording() {
+                Ok(_) => 0,
+                Err(_) => -1,
+            }
+        } else { -2 }
+    }
+}
+
 fn resample_audio(input: &[f32], from_rate: u32, to_rate: u32) -> anyhow::Result<Vec<f32>> {
     use rubato::{Resampler, Fft, FixedSync};
     use audioadapter_buffers::direct::SequentialSliceOfVecs;

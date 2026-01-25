@@ -3,6 +3,10 @@ name = "suprasonic_core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+csharp = []
+
 [dependencies]
 cpal = "0.15"
 anyhow = "1.0"
@@ -17,6 +21,7 @@ audioadapter-buffers = "2.0"
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
+csbindgen = "1.9.0"
 
 [lib]
 crate-type = ["cdylib", "staticlib", "lib"]
