@@ -1,0 +1,4 @@
+module suprasonic_coreFFI {
+    header "suprasonic_coreFFI.h"
+    export *
+}

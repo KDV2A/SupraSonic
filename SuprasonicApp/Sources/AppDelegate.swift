@@ -1,21 +1,24 @@
 import Cocoa
 import AVFoundation
 import Carbon.HIToolbox
+import SupraSonicCore
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var overlayWindow: OverlayWindow?
     private var settingsWindow: SettingsWindow?
-    private var audioEngine: AVAudioEngine?
-    private var audioBuffer: [Float] = []
+    
+    // Rust Core State
+    private var rustState: AppState?
+    
     private var isRecording = false
     private var pushToTalkDown = false
-    private var converter: AVAudioConverter?
     private var flagsMonitor: Any?
     private var keyMonitor: Any?
     private var localFlagsMonitor: Any?
     private var localKeyMonitor: Any?
     private var toggleKeyDown = false
+    
     private var lastUIUpdate: CFTimeInterval = 0
     // Tracking for consecutive transcriptions
     private var lastTranscriptionTime: Date? = nil
@@ -154,14 +157,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func proceedWithApp() {
-        // Setup audio engine
-        self.setupAudioEngine()
+        // Initialize Rust Core
+        do {
+            let state = try AppState()
+            self.rustState = state
+            print("🦀 Rust Core Initialized")
+            
+            // Set listener for raw audio data
+            state.setListener(listener: RustAudioListener(delegate: self))
+            
+        } catch {
+            print("❌ Rust Core Initialization Failed: \(error)")
+        }
         
+        // Initialize ML Engine (Parakeet v3 via FluidAudio)
+        Task {
+            do {
+                try await TranscriptionManager.shared.initialize()
+                print("✅ ML Engine (Parakeet v3) Initialized")
+            } catch {
+                print("❌ ML Engine Initialization Failed: \(error)")
+            }
+        }
+    
         // Setup global hotkeys
         self.setupHotKeys()
-        
-        // Initialize Parakeet
-        self.initializeTranscription()
         
         print("🎤 \(Constants.appName) ready! Hold Right Command to record.")
     }
@@ -494,103 +514,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func handleWake() {
-        print("☀️ System: Wake detected. Restarting audio engine...")
-        restartAudioEngine()
+        print("☀️ System: Wake detected.")
+        // restartAudioEngine() // Legacy disabled
     }
     
     @objc private func handleAudioConfigChange() {
-        print("🔄 Audio: Configuration change detected. Recovering...")
-        restartAudioEngine()
+        print("🔄 Audio: Configuration change detected.")
+        // restartAudioEngine() // Legacy disabled
     }
     
-    private func restartAudioEngine() {
-        // Stop current engine and remove taps
-        if let engine = audioEngine {
-            if engine.isRunning {
-                engine.stop()
-            }
-            engine.inputNode.removeTap(onBus: 0)
-        }
-        
-        // Nuillify and rebuild
-        audioEngine = nil
-        converter = nil
-        
-        // Re-setup engine
-        setupAudioEngine()
-    }
+    // private func restartAudioEngine() { ... }
     
     func setupAudioEngine() {
-        audioEngine = AVAudioEngine()
-        guard let audioEngine = audioEngine else { return }
-        
-        let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Constants.targetSampleRate, channels: 1, interleaved: false)!
-        
-        // Create converter once for reuse
-        converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-        
-        // Larger buffer for efficiency
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let self = self, self.isRecording else { return }
-            self.processAudioBuffer(buffer, targetFormat: targetFormat)
-        }
-        
-        do {
-            try audioEngine.start()
-            print("✅ Audio engine started")
-        } catch {
-            print("❌ Failed to start audio engine: \(error)")
-        }
+        // Disabled for Rust Migration
+        print("⚠️ Legacy Audio Engine setup skipped.")
     }
     
-    private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) {
-        guard let converter = converter else { return }
-        
-        let ratio = targetFormat.sampleRate / buffer.format.sampleRate
-        let outputCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputCapacity) else { return }
-        
-        var error: NSError?
-        converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-            outStatus.pointee = .haveData
-            return buffer
-        }
-        
-        guard let channelData = outputBuffer.floatChannelData?[0] else { return }
-        let samples = Array(UnsafeBufferPointer(start: channelData, count: Int(outputBuffer.frameLength)))
-        let level = samples.map { abs($0) }.max() ?? 0
-        
-        // Append samples (thread-safe via main queue, but throttle UI updates)
-        DispatchQueue.main.async {
-            self.audioBuffer.append(contentsOf: samples)
-            
-            // Limit buffer size to prevent memory issues
-            if self.audioBuffer.count > Constants.maxBufferSamples {
-                self.audioBuffer.removeFirst(self.audioBuffer.count - Constants.maxBufferSamples)
-            }
-            
-            // Throttle UI updates to reduce CPU usage
-            let now = CACurrentMediaTime()
-            if now - self.lastUIUpdate >= Constants.uiUpdateInterval {
-                self.lastUIUpdate = now
-                self.overlayWindow?.updateLevel(level)
-            }
-        }
-    }
+    // private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) { ... }
     
     func startRecording() {
         guard !isRecording else { return }
         
-        // Safety check: ensure engine is running
-        if let engine = audioEngine, !engine.isRunning {
-            print("⚠️ Engine wasn't running, attempting to start...")
-            try? engine.start()
+        // Rust Core Start
+        if let state = rustState {
+            do {
+                try state.startRecording()
+                print("🦀 Rust: Start Capture")
+            } catch {
+                print("❌ Rust Start Failed: \(error)")
+            }
         }
         
         isRecording = true
-        audioBuffer.removeAll()
         
         DispatchQueue.main.async {
             self.overlayWindow?.show()
@@ -602,40 +557,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func stopRecording() {
         guard isRecording else { return }
         
+        // Rust Core Stop
+        if let state = rustState {
+            do {
+                try state.stopRecording()
+                print("🦀 Rust: Stop Capture")
+            } catch {
+                 print("❌ Rust Stop Failed: \(error)")
+            }
+        }
+        
         isRecording = false
         
         DispatchQueue.main.async {
             self.overlayWindow?.hide()
         }
         
-        print("⏹️ Recording stopped. Samples: \(audioBuffer.count)")
-        
-        // Send for transcription
-        if !audioBuffer.isEmpty {
-            transcribeAudio()
-        }
+        print("⏹️ Recording stopped.")
     }
     
-    func transcribeAudio() {
-        let samples = audioBuffer
-        audioBuffer.removeAll()
+    func handleTranscriptionResult(_ text: String) {
+        let isConsecutive = lastTranscriptionTime != nil && Date().timeIntervalSince(lastTranscriptionTime!) < Constants.consecutiveTranscriptionThreshold
+        lastTranscriptionTime = Date()
         
+        KeystrokeManager.shared.insertText(text, consecutive: isConsecutive)
+    }
+}
+
+// MARK: - Rust Integration Helpers
+
+protocol RustAudioDelegate: AnyObject {
+    func handleAudioBuffer(_ audioData: [Float])
+    func handleAudioLevel(_ level: Float)
+}
+
+class RustAudioListener: TranscriptionListener {
+    weak var delegate: RustAudioDelegate?
+    
+    init(delegate: RustAudioDelegate) {
+        self.delegate = delegate
+    }
+    
+    func onAudioData(audioData: [Float]) {
+        print("🎙️ Rust Audio Captured: \(audioData.count) samples")
+        self.delegate?.handleAudioBuffer(audioData)
+    }
+    
+    func onLevelChanged(level: Float) {
+        self.delegate?.handleAudioLevel(level)
+    }
+}
+
+extension AppDelegate: RustAudioDelegate {
+    func handleAudioBuffer(_ audioData: [Float]) {
         Task {
             do {
-                // Check if Parakeet is ready (on MainActor)
-                let isReady = await TranscriptionManager.shared.isReady
-                if !isReady {
-                    print("⚠️ Transcription engine not ready, initializing...")
-                    try await TranscriptionManager.shared.initialize()
-                }
+                print("🧠 App: Starting Parakeet v3 inference...")
+                let text = try await TranscriptionManager.shared.transcribe(audioSamples: audioData)
                 
-                let text = try await TranscriptionManager.shared.transcribe(audioSamples: samples)
-                
+                print("📝 Parakeet Result: \(text)")
                 if !text.isEmpty {
-                    print("📝 Transcription: \(text)")
-                    
-                    // Save to history if enabled
-                    await MainActor.run {
+                    DispatchQueue.main.async {
                         SettingsManager.shared.addToHistory(text)
                         self.handleTranscriptionResult(text)
                     }
@@ -646,11 +628,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func handleTranscriptionResult(_ text: String) {
-        let isConsecutive = lastTranscriptionTime != nil && Date().timeIntervalSince(lastTranscriptionTime!) < Constants.consecutiveTranscriptionThreshold
-        lastTranscriptionTime = Date()
-        
-        KeystrokeManager.shared.insertText(text, consecutive: isConsecutive)
+    func handleAudioLevel(_ level: Float) {
+        DispatchQueue.main.async {
+            self.overlayWindow?.updateLevel(level)
+        }
     }
 }
 

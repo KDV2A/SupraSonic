@@ -59,12 +59,17 @@ if [ -d "$BUNDLE_RESOURCES" ]; then
     cp -r "$BUNDLE_RESOURCES" "$RESOURCES_DIR/"
 fi
 
+# 6. Copy Rust dylib
+echo "🦀 Copying Rust core library..."
+cp "$SCRIPT_DIR/SupraSonicApp/Libs/libsuprasonic_core.dylib" "$MACOS_DIR/"
+chmod +x "$MACOS_DIR/libsuprasonic_core.dylib"
+
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
 # Sign the app (ad-hoc signing for local testing)
 echo "🔐 Signing app (ad-hoc)..."
-codesign --force --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
+codesign --force --deep --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
 
 echo ""
 echo "✅ App bundle created: $APP_DIR"

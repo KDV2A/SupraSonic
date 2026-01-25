@@ -260,17 +260,6 @@ class TranscriptionManager: ObservableObject {
         let result = try await fluidAsr.transcribe(audioSamples)
         return result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
-    
-    /// Transcribe audio from file path
-    func transcribe(audioPath: String) async throws -> String {
-        guard isReady else {
-            throw TranscriptionError.notInitialized
-        }
-        
-        // Parakeet batch file transcription placeholder
-        // In a real scenario, we'd load the file into samples
-        return "File transcription not yet implemented for Parakeet"
-    }
 }
 
 // MARK: - Errors

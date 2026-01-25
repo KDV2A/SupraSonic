@@ -1,0 +1,23 @@
+[package]
+name = "suprasonic_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = "0.15"
+anyhow = "1.0"
+tracing = "0.1"
+crossbeam-channel = "0.5"
+uniffi = { version = "0.28", features = ["cli"] }
+thiserror = "1.0"
+rubato = { version = "1.0.1", features = ["fft_resampler"] }
+tracing-subscriber = "0.3.22"
+audioadapter = "2.0"
+audioadapter-buffers = "2.0"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "suprasonic_core"
