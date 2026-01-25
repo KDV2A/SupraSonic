@@ -15,16 +15,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
     private var localFlagsMonitor: Any?
     private var localKeyMonitor: Any?
-    private var toggleKeyDown = false  // Track toggle key state for toggle mode
-    
-    private let targetSampleRate: Double = 16000
-    private let maxBufferSamples = 16000 * 60  // Max 60 seconds of audio
+    private var toggleKeyDown = false
     private var lastUIUpdate: CFTimeInterval = 0
-    private let uiUpdateInterval: CFTimeInterval = 1.0/30.0 // 30 FPS
-    
     // Tracking for consecutive transcriptions
     private var lastTranscriptionTime: Date? = nil
-    private let consecutiveThreshold: TimeInterval = 30.0 // 30 seconds
     
     private var setupWindow: SetupWindow?
     
@@ -39,13 +33,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = SettingsWindow()
         
         // Listen for hotkey settings changes
-        NotificationCenter.default.addObserver(self, selector: #selector(hotkeySettingsChanged), name: .hotkeySettingsChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(hotkeySettingsChanged), name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
         
         // Listen for model selection changes
-        NotificationCenter.default.addObserver(self, selector: #selector(onModelSelectionChanged), name: .modelSelectionChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onModelSelectionChanged), name: Constants.NotificationNames.modelSelectionChanged, object: nil)
         
         // Listen for setup completion
-        NotificationCenter.default.addObserver(self, selector: #selector(onSetupComplete), name: NSNotification.Name("SetupComplete"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onSetupComplete), name: Constants.NotificationNames.setupComplete, object: nil)
         
         // Listen for system wake and audio changes
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
@@ -64,7 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func shouldShowSetup() -> Bool {
         // 1. If setup was never completed, ALWAYS show it
-        let setupCompleted = UserDefaults.standard.bool(forKey: "SupraSonicSetupCompleted")
+        let setupCompleted = UserDefaults.standard.bool(forKey: Constants.Keys.setupCompleted)
         if !setupCompleted {
             print("🚀 App: Onboarding never completed. Showing setup.")
             return true
@@ -108,10 +102,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("✅ App: Setup complete signal received")
         
         // 1. Remove observer immediately to prevent any potential double-calls
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("SetupComplete"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: Constants.NotificationNames.setupComplete, object: nil)
         
         // 2. Mark as completed in UserDefaults
-        UserDefaults.standard.set(true, forKey: "SupraSonicSetupCompleted")
+        UserDefaults.standard.set(true, forKey: Constants.Keys.setupCompleted)
         UserDefaults.standard.synchronize()
         
         // Use a single serial cleanup sequence on main queue
@@ -169,7 +163,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize Parakeet
         self.initializeTranscription()
         
-        print("🎤 SupraSonic ready! Hold Right Command to record.")
+        print("🎤 \(Constants.appName) ready! Hold Right Command to record.")
     }
     
     private func checkCompatibility() -> Bool {
@@ -179,8 +173,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let alert = NSAlert()
             alert.messageText = L10n.isFrench ? "Version macOS non supportée" : "Unsupported macOS Version"
             alert.informativeText = L10n.isFrench 
-                ? "SupraSonic nécessite macOS 14.0 (Sonoma) ou plus récent pour fonctionner avec le moteur Parakeet."
-                : "SupraSonic requires macOS 14.0 (Sonoma) or newer to run with the Parakeet engine."
+                ? "\(Constants.appName) nécessite macOS 14.0 (Sonoma) ou plus récent pour fonctionner avec le moteur Parakeet."
+                : "\(Constants.appName) requires macOS 14.0 (Sonoma) or newer to run with the Parakeet engine."
             alert.alertStyle = .critical
             alert.addButton(withTitle: L10n.isFrench ? "Quitter" : "Quit")
             alert.runModal()
@@ -193,8 +187,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = L10n.isFrench ? "Mac non compatible" : "Incompatible Mac"
         alert.informativeText = L10n.isFrench
-            ? "SupraSonic est optimisé pour les processeurs Apple Silicon (M1, M2, M3, M4). Les processeurs Intel ne sont pas supportés par le moteur de transcription actuel."
-            : "SupraSonic is optimized for Apple Silicon processors (M1, M2, M3, M4). Intel processors are not supported by the current transcription engine."
+            ? "\(Constants.appName) est optimisé pour les processeurs Apple Silicon (M1, M2, M3, M4). Les processeurs Intel ne sont pas supportés par le moteur de transcription actuel."
+            : "\(Constants.appName) is optimized for Apple Silicon processors (M1, M2, M3, M4). Intel processors are not supported by the current transcription engine."
         alert.alertStyle = .critical
         alert.addButton(withTitle: L10n.isFrench ? "Quitter" : "Quit")
         alert.runModal()
@@ -291,7 +285,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "Microphone Access Required"
-            alert.informativeText = "SupraSonic needs microphone access to transcribe your speech. Please enable it in System Settings > Privacy & Security > Microphone."
+            alert.informativeText = "\(Constants.appName) needs microphone access to transcribe your speech. Please enable it in System Settings > Privacy & Security > Microphone."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open Settings")
             alert.addButton(withTitle: "Cancel")
@@ -333,13 +327,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 button.image = icon
             } else {
                 // Fallback to system symbol
-                button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "SupraSonic")
+                button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: Constants.appName)
                 button.image?.isTemplate = true
             }
         }
         
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "SupraSonic", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: Constants.appName, action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
         // Microphone submenu
@@ -482,30 +476,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
-        // Modifier key codes: Command (L/R), Shift (L/R), Option (L/R), Control (L/R)
-        return [0x36, 0x37, 0x38, 0x3C, 0x3A, 0x3D, 0x3B, 0x3E].contains(keyCode)
+        return Constants.KeyCodes.modifiers.contains(keyCode)
     }
     
     private func isModifierActive(event: NSEvent, keyCode: UInt16) -> Bool {
         switch keyCode {
-        case 0x36: // Right Command
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK)) != 0
-        case 0x37: // Left Command
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICELCMDKEYMASK)) != 0
-        case 0x38: // Left Shift
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICELSHIFTKEYMASK)) != 0
-        case 0x3C: // Right Shift
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK)) != 0
-        case 0x3A: // Left Option
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICELALTKEYMASK)) != 0
-        case 0x3D: // Right Option
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK)) != 0
-        case 0x3B: // Left Control
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICELCTLKEYMASK)) != 0
-        case 0x3E: // Right Control
-            return (event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK)) != 0
-        default:
-            return false
+        case Constants.KeyCodes.commandRight: return (event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK)) != 0
+        case Constants.KeyCodes.commandLeft: return (event.modifierFlags.rawValue & UInt(NX_DEVICELCMDKEYMASK)) != 0
+        case Constants.KeyCodes.shiftLeft: return (event.modifierFlags.rawValue & UInt(NX_DEVICELSHIFTKEYMASK)) != 0
+        case Constants.KeyCodes.shiftRight: return (event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK)) != 0
+        case Constants.KeyCodes.optionLeft: return (event.modifierFlags.rawValue & UInt(NX_DEVICELALTKEYMASK)) != 0
+        case Constants.KeyCodes.optionRight: return (event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK)) != 0
+        case Constants.KeyCodes.controlLeft: return (event.modifierFlags.rawValue & UInt(NX_DEVICELCTLKEYMASK)) != 0
+        case Constants.KeyCodes.controlRight: return (event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK)) != 0
+        default: return false
         }
     }
     
@@ -542,7 +526,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         let inputNode = audioEngine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
-        let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: targetSampleRate, channels: 1, interleaved: false)!
+        let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Constants.targetSampleRate, channels: 1, interleaved: false)!
         
         // Create converter once for reuse
         converter = AVAudioConverter(from: inputFormat, to: targetFormat)
@@ -583,13 +567,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.audioBuffer.append(contentsOf: samples)
             
             // Limit buffer size to prevent memory issues
-            if self.audioBuffer.count > self.maxBufferSamples {
-                self.audioBuffer.removeFirst(self.audioBuffer.count - self.maxBufferSamples)
+            if self.audioBuffer.count > Constants.maxBufferSamples {
+                self.audioBuffer.removeFirst(self.audioBuffer.count - Constants.maxBufferSamples)
             }
             
             // Throttle UI updates to reduce CPU usage
             let now = CACurrentMediaTime()
-            if now - self.lastUIUpdate >= self.uiUpdateInterval {
+            if now - self.lastUIUpdate >= Constants.uiUpdateInterval {
                 self.lastUIUpdate = now
                 self.overlayWindow?.updateLevel(level)
             }
@@ -626,7 +610,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         print("⏹️ Recording stopped. Samples: \(audioBuffer.count)")
         
-        // Send to WhisperKit for transcription
+        // Send for transcription
         if !audioBuffer.isEmpty {
             transcribeAudio()
         }
@@ -638,10 +622,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         Task {
             do {
-                // Check if WhisperKit is ready (on MainActor)
+                // Check if Parakeet is ready (on MainActor)
                 let isReady = await TranscriptionManager.shared.isReady
                 if !isReady {
-                    print("⚠️ WhisperKit not ready, initializing...")
+                    print("⚠️ Transcription engine not ready, initializing...")
                     try await TranscriptionManager.shared.initialize()
                 }
                 
@@ -653,7 +637,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     // Save to history if enabled
                     await MainActor.run {
                         SettingsManager.shared.addToHistory(text)
-                        self.insertText(text)
+                        self.handleTranscriptionResult(text)
                     }
                 }
             } catch {
@@ -662,96 +646,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    func insertText(_ text: String) {
-        var textToInsert = text
-        
-        // Add a leading space if we transcribed recently (consecutive dictation)
-        if let lastTime = lastTranscriptionTime, Date().timeIntervalSince(lastTime) < consecutiveThreshold {
-            textToInsert = " " + textToInsert
-            print("✨ Adding leading space for consecutive transcription")
-        }
-        
+    private func handleTranscriptionResult(_ text: String) {
+        let isConsecutive = lastTranscriptionTime != nil && Date().timeIntervalSince(lastTranscriptionTime!) < Constants.consecutiveTranscriptionThreshold
         lastTranscriptionTime = Date()
         
-        // 1. Copy to clipboard
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(textToInsert, forType: .string)
-        
-        print("📋 [DEBUG] Text copied to clipboard (\(textToInsert.count) chars): \(textToInsert.prefix(30))...")
-        
-        // Check environment
-        let isSandboxed = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
-        print("📦 [DEBUG] App Context - Sandboxed: \(isSandboxed), Bundle: \(Bundle.main.bundleIdentifier ?? "unknown")")
-        
-        // 2. Try to paste with a brief delay (100ms) to ensure clipboard is ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            
-            var pasteSucceeded = false
-            let hasRequestedAppleEvents = UserDefaults.standard.bool(forKey: "AppleEventsPermissionRequested")
-            
-            if !hasRequestedAppleEvents {
-                print("📋 [DEBUG] AppleScript attempt - First launch logic...")
-                let script = """
-                tell application "System Events"
-                    keystroke "v" using command down
-                end tell
-                """
-                
-                let appleScript = NSAppleScript(source: script)
-                var error: NSDictionary?
-                appleScript?.executeAndReturnError(&error)
-                
-                if error == nil {
-                    print("✅ [DEBUG] AppleScript execution reported success")
-                    pasteSucceeded = true
-                    UserDefaults.standard.set(true, forKey: "AppleEventsPermissionRequested")
-                } else {
-                    print("⚠️ [DEBUG] AppleScript failed: \(error ?? [:])")
-                    // Don't set the flag to true if it was an error that might be recoverable or prompted
-                    if let errNum = error?[NSAppleScript.errorNumber] as? Int, errNum == -1728 {
-                        // System Events not found or similar hard error
-                        UserDefaults.standard.set(true, forKey: "AppleEventsPermissionRequested")
-                    }
-                }
-            } else {
-                print("📋 [DEBUG] Skipping AppleScript (using fallback mode)")
-            }
-            
-            // 3. Fallback to CGEvent if AppleScript skipped or failed
-            if !pasteSucceeded {
-                self.performPasteViaCGEvent()
-            }
-        }
-    }
-    
-    private func performPasteViaCGEvent() {
-        let isTrusted = AXIsProcessTrusted()
-        print("🎯 [DEBUG] CGEvent Fallback - Accessibility Trusted: \(isTrusted)")
-        
-        let source = CGEventSource(stateID: .hidSystemState)
-        let cmdKey: UInt16 = 0x37 // Left Command
-        let vKey: UInt16 = 0x09   // 'v'
-        
-        guard let pbtDown = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: true),
-              let pbtUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: false),
-              let vDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
-              let vUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else {
-            print("❌ [DEBUG] Failed to create CGEvents")
-            return
-        }
-        
-        vDown.flags = .maskCommand
-        vUp.flags = .maskCommand
-        
-        // Full sequence: Cmd Down -> V Down -> V Up -> Cmd Up
-        pbtDown.post(tap: .cghidEventTap)
-        vDown.post(tap: .cghidEventTap)
-        vUp.post(tap: .cghidEventTap)
-        pbtUp.post(tap: .cghidEventTap)
-        
-        print("🎯 [DEBUG] Full CGEvent sequence posted (Cmd + V)")
+        KeystrokeManager.shared.insertText(text, consecutive: isConsecutive)
     }
 }
 

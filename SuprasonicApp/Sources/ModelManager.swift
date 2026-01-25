@@ -1,7 +1,7 @@
 import Foundation
 
-/// Simplified ModelManager for WhisperKit
-/// WhisperKit handles model downloads automatically, this just manages preferences
+/// Simplified ModelManager for FluidAudio/Parakeet
+/// Managed preferences for the local transcription engine.
 class ModelManager {
     static let shared = ModelManager()
     

@@ -63,31 +63,35 @@ class AudioDeviceManager {
     
     private func getDeviceInfo(_ deviceID: AudioDeviceID) -> AudioDevice? {
         // Get device name
-        var propertySize: UInt32 = UInt32(MemoryLayout<CFString>.size)
+        var propertySize: UInt32 = UInt32(MemoryLayout<CFTypeRef>.size)
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
         
-        var name: CFString = "" as CFString
-        let nameStatus = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, &name)
+        var name: CFTypeRef?
+        let nameStatus = withUnsafeMutablePointer(to: &name) { (titlePtr: UnsafeMutablePointer<CFTypeRef?>) -> OSStatus in
+            return AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, titlePtr)
+        }
         
-        guard nameStatus == noErr else { return nil }
+        guard nameStatus == noErr, let name = name as? String else { return nil }
         
         // Get device UID
         propertyAddress.mSelector = kAudioDevicePropertyDeviceUID
-        propertySize = UInt32(MemoryLayout<CFString>.size)
+        propertySize = UInt32(MemoryLayout<CFTypeRef>.size)
         
-        var uid: CFString = "" as CFString
-        let uidStatus = AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, &uid)
+        var uid: CFTypeRef?
+        let uidStatus = withUnsafeMutablePointer(to: &uid) { (uidPtr: UnsafeMutablePointer<CFTypeRef?>) -> OSStatus in
+            return AudioObjectGetPropertyData(deviceID, &propertyAddress, 0, nil, &propertySize, uidPtr)
+        }
         
-        guard uidStatus == noErr else { return nil }
+        guard uidStatus == noErr, let uid = uid as? String else { return nil }
         
         return AudioDevice(
             id: deviceID,
-            uid: uid as String,
-            name: name as String,
+            uid: uid,
+            name: name,
             isInput: true
         )
     }
@@ -110,12 +114,12 @@ class AudioDeviceManager {
     
     func setInputDevice(_ device: AudioDevice) {
         // Store the selected device UID in UserDefaults
-        UserDefaults.standard.set(device.uid, forKey: "selectedMicrophoneUID")
-        NotificationCenter.default.post(name: .microphoneChanged, object: device)
+        UserDefaults.standard.set(device.uid, forKey: Constants.Keys.selectedMicrophoneUID)
+        NotificationCenter.default.post(name: Constants.NotificationNames.microphoneChanged, object: device)
     }
     
     func getSelectedDevice() -> AudioDevice? {
-        guard let uid = UserDefaults.standard.string(forKey: "selectedMicrophoneUID") else {
+        guard let uid = UserDefaults.standard.string(forKey: Constants.Keys.selectedMicrophoneUID) else {
             return getDefaultInputDevice()
         }
         
@@ -123,6 +127,3 @@ class AudioDeviceManager {
     }
 }
 
-extension Notification.Name {
-    static let microphoneChanged = Notification.Name("microphoneChanged")
-}

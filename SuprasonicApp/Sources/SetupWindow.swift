@@ -12,8 +12,8 @@ class SetupWindow: NSWindow {
     private var troubleshootButton: NSButton!
     private var tipLabel: NSTextField!
     
-    private let brandBlue = NSColor(red: 0, green: 0.9, blue: 1.0, alpha: 1.0)
-    private let totalModelSizeMB: Double = 600.0
+    private let brandBlue = Constants.brandBlue
+    private let totalModelSizeMB = Constants.modelSizeMB
     
     init() {
         let windowRect = NSRect(x: 0, y: 0, width: 450, height: 400)
@@ -65,7 +65,7 @@ class SetupWindow: NSWindow {
         logoView.imageScaling = .scaleProportionallyUpOrDown
         
         // Title
-        titleLabel = NSTextField(labelWithString: "SupraSonic")
+        titleLabel = NSTextField(labelWithString: Constants.appName)
         titleLabel.font = NSFont.systemFont(ofSize: 28, weight: .bold)
         titleLabel.textColor = .labelColor
         
@@ -254,7 +254,7 @@ class SetupWindow: NSWindow {
             self.progressBar.isHidden = true
             self.progressLabel.isHidden = true
             
-            self.actionButton.title = L10n.isFrench ? "Commencer" : "Start Using SupraSonic"
+            self.actionButton.title = L10n.isFrench ? "Commencer" : "Start Using \(Constants.appName)"
             self.actionButton.isEnabled = true
             self.actionButton.isHidden = false
             self.actionButton.action = #selector(self.finishSetup)
@@ -267,7 +267,7 @@ class SetupWindow: NSWindow {
     
     @objc private func finishSetup() {
         print("✅ Setup: Success finish clicked")
-        NotificationCenter.default.post(name: NSNotification.Name("SetupComplete"), object: nil)
+        NotificationCenter.default.post(name: Constants.NotificationNames.setupComplete, object: nil)
     }
     
     private func requestMicrophonePermission() async -> Bool {

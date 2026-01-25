@@ -6,17 +6,6 @@ class SettingsManager {
     
     private let defaults = UserDefaults.standard
     
-    // Keys
-    private let pushToTalkKeyKey = "pushToTalkKey"
-    private let pushToTalkModifiersKey = "pushToTalkModifiers"
-    private let pushToTalkKeyStringKey = "pushToTalkKeyString"
-    private let hotkeyModeKey = "hotkeyMode"
-    private let toggleRecordKeyKey = "toggleRecordKey"
-    private let toggleRecordModifiersKey = "toggleRecordModifiers"
-    private let historyEnabledKey = "historyEnabled"
-    private let launchOnLoginKey = "launchOnLogin"
-    private let transcriptionHistoryKey = "transcriptionHistory"
-    
     enum HotkeyMode: Int, Codable {
         case pushToTalk = 0
         case toggle = 1
@@ -26,60 +15,58 @@ class SettingsManager {
     
     var hotkeyMode: HotkeyMode {
         get {
-            let value = defaults.integer(forKey: hotkeyModeKey)
+            let value = defaults.integer(forKey: Constants.Keys.hotkeyMode)
             // Default to .toggle (1) instead of .pushToTalk (0)
-            if defaults.object(forKey: hotkeyModeKey) == nil { return .toggle }
+            if defaults.object(forKey: Constants.Keys.hotkeyMode) == nil { return .toggle }
             return HotkeyMode(rawValue: value) ?? .toggle
         }
-        set { defaults.set(newValue.rawValue, forKey: hotkeyModeKey) }
+        set { defaults.set(newValue.rawValue, forKey: Constants.Keys.hotkeyMode) }
     }
     
     var pushToTalkKey: UInt16 {
         get {
-            let value = defaults.integer(forKey: pushToTalkKeyKey)
+            let value = defaults.integer(forKey: Constants.Keys.pushToTalkKey)
             return value == 0 ? 0x36 : UInt16(value)  // 0x36 = Right Command
         }
-        set { defaults.set(Int(newValue), forKey: pushToTalkKeyKey) }
+        set { defaults.set(Int(newValue), forKey: Constants.Keys.pushToTalkKey) }
     }
     
     var pushToTalkKeyString: String {
         get {
-            let value = defaults.string(forKey: pushToTalkKeyStringKey)
+            let value = defaults.string(forKey: Constants.Keys.pushToTalkKeyString)
             if value == nil && pushToTalkKey == 0x36 {
                 return "⌘ " + (L10n.isFrench ? "Droite" : "Right")
             }
             return value ?? ""
         }
-        set { defaults.set(newValue, forKey: pushToTalkKeyStringKey) }
+        set { defaults.set(newValue, forKey: Constants.Keys.pushToTalkKeyString) }
     }
     
     var pushToTalkModifiers: UInt {
         get {
             // If the key is specifically set to the default (Right Command), we default to Command modifier
-            if defaults.object(forKey: pushToTalkModifiersKey) == nil {
+            if defaults.object(forKey: Constants.Keys.pushToTalkModifiers) == nil {
                 return (pushToTalkKey == 0x36) ? UInt(1 << 20) : 0
             }
-            return UInt(defaults.integer(forKey: pushToTalkModifiersKey))
+            return UInt(defaults.integer(forKey: Constants.Keys.pushToTalkModifiers))
         }
-        set { defaults.set(Int(newValue), forKey: pushToTalkModifiersKey) }
+        set { defaults.set(Int(newValue), forKey: Constants.Keys.pushToTalkModifiers) }
     }
     
     var pushToTalkIsRightCommand: Bool {
         get { pushToTalkKey == 0x36 }
     }
     
-    // MARK: - Legacy Toggle Record Hotkey (kept for migration safety, but no longer used in UI)
-    
     // MARK: - History
     
     var historyEnabled: Bool {
-        get { defaults.bool(forKey: historyEnabledKey) }
-        set { defaults.set(newValue, forKey: historyEnabledKey) }
+        get { defaults.bool(forKey: Constants.Keys.historyEnabled) }
+        set { defaults.set(newValue, forKey: Constants.Keys.historyEnabled) }
     }
     
     var transcriptionHistory: [TranscriptionEntry] {
         get {
-            guard let data = defaults.data(forKey: transcriptionHistoryKey),
+            guard let data = defaults.data(forKey: Constants.Keys.transcriptionHistory),
                   let entries = try? JSONDecoder().decode([TranscriptionEntry].self, from: data) else {
                 return []
             }
@@ -87,7 +74,7 @@ class SettingsManager {
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
-                defaults.set(data, forKey: transcriptionHistoryKey)
+                defaults.set(data, forKey: Constants.Keys.transcriptionHistory)
             }
         }
     }
@@ -104,7 +91,7 @@ class SettingsManager {
         transcriptionHistory = history
         
         // Notify observers for real-time update
-        NotificationCenter.default.post(name: .historyEntryAdded, object: entry)
+        NotificationCenter.default.post(name: Constants.NotificationNames.historyEntryAdded, object: entry)
     }
     
     func clearHistory() {
@@ -114,9 +101,9 @@ class SettingsManager {
     // MARK: - Launch on Login
     
     var launchOnLogin: Bool {
-        get { defaults.bool(forKey: launchOnLoginKey) }
+        get { defaults.bool(forKey: Constants.Keys.launchOnLogin) }
         set {
-            defaults.set(newValue, forKey: launchOnLoginKey)
+            defaults.set(newValue, forKey: Constants.Keys.launchOnLogin)
             updateLaunchOnLogin(newValue)
         }
     }
@@ -138,13 +125,13 @@ class SettingsManager {
     // MARK: - Reset to Defaults
     
     func resetToDefaults() {
-        defaults.removeObject(forKey: pushToTalkKeyKey)
-        defaults.removeObject(forKey: pushToTalkModifiersKey)
-        defaults.removeObject(forKey: pushToTalkKeyStringKey)
-        defaults.removeObject(forKey: toggleRecordKeyKey)
-        defaults.removeObject(forKey: toggleRecordModifiersKey)
-        defaults.removeObject(forKey: historyEnabledKey)
-        defaults.removeObject(forKey: launchOnLoginKey)
+        defaults.removeObject(forKey: Constants.Keys.pushToTalkKey)
+        defaults.removeObject(forKey: Constants.Keys.pushToTalkModifiers)
+        defaults.removeObject(forKey: Constants.Keys.pushToTalkKeyString)
+        defaults.removeObject(forKey: Constants.Keys.hotkeyMode)
+        defaults.removeObject(forKey: Constants.Keys.historyEnabled)
+        defaults.removeObject(forKey: Constants.Keys.launchOnLogin)
+        defaults.removeObject(forKey: Constants.Keys.transcriptionHistory)
     }
 }
 

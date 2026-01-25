@@ -15,7 +15,7 @@ class SettingsWindow: NSWindow {
     private var toggleCard: ModeCardView!
     private var hotkeyButton: HotkeyButton!
     
-    // Model controls (simplified for WhisperKit)
+    // Model controls (simplified for FluidAudio)
     private var languagePopup: NSPopUpButton!
     
     // History controls
@@ -43,7 +43,7 @@ class SettingsWindow: NSWindow {
         setupUI()
         loadSettings()
         
-        NotificationCenter.default.addObserver(self, selector: #selector(onHistoryEntryAdded(_:)), name: .historyEntryAdded, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(onHistoryEntryAdded(_:)), name: Constants.NotificationNames.historyEntryAdded, object: nil)
     }
     
 
@@ -150,9 +150,8 @@ class SettingsWindow: NSWindow {
         versionStack.spacing = 4
         
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         
-        let versionLabel = NSTextField(labelWithString: "SupraSonic v\(version) (\(build))")
+        let versionLabel = NSTextField(labelWithString: "SupraSonic v\(version)")
         versionLabel.font = NSFont.systemFont(ofSize: 11)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center
@@ -365,7 +364,7 @@ class SettingsWindow: NSWindow {
         let micStatus = PermissionsManager.shared.checkMicrophonePermission()
         let devices = AudioDeviceManager.shared.getInputDevices()
         let selectedDevice = AudioDeviceManager.shared.getSelectedDevice()
-        let storedUID = UserDefaults.standard.string(forKey: "selectedMicrophoneUID")
+        let storedUID = UserDefaults.standard.string(forKey: Constants.Keys.selectedMicrophoneUID)
         
         // 1. Check if permission is denied
         if micStatus == .denied {
@@ -404,7 +403,7 @@ class SettingsWindow: NSWindow {
         }
     }
     
-    // MARK: - Model Section (Simplified for WhisperKit)
+    // MARK: - Model Section (Simplified for FluidAudio)
     
     @objc private func languageSelectionChanged(_ sender: NSPopUpButton) {
         if let langCode = sender.selectedItem?.representedObject as? String {
@@ -512,14 +511,14 @@ class SettingsWindow: NSWindow {
         let mode = sender.mode
         SettingsManager.shared.hotkeyMode = mode
         updateModeCards(mode)
-        NotificationCenter.default.post(name: .hotkeySettingsChanged, object: nil)
+        NotificationCenter.default.post(name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
     }
     
     @objc private func hotkeyChanged(_ sender: HotkeyButton) {
         SettingsManager.shared.pushToTalkKey = sender.keyCode
         SettingsManager.shared.pushToTalkModifiers = sender.modifiers
         SettingsManager.shared.pushToTalkKeyString = sender.keyString
-        NotificationCenter.default.post(name: .hotkeySettingsChanged, object: nil)
+        NotificationCenter.default.post(name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
     }
     
     func reloadHistory() {
@@ -568,7 +567,7 @@ class SettingsWindow: NSWindow {
             SettingsManager.shared.resetToDefaults()
             loadSettings()
             loadMicrophones()
-            NotificationCenter.default.post(name: .hotkeySettingsChanged, object: nil)
+            NotificationCenter.default.post(name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
         }
     }
     
@@ -776,19 +775,19 @@ class HotkeyButton: NSButton {
     }
     
     private func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
-        return [0x36, 0x37, 0x38, 0x3C, 0x3A, 0x3D, 0x3B, 0x3E].contains(keyCode)
+        return Constants.KeyCodes.modifiers.contains(keyCode)
     }
     
     private func modifierKeyCodeToString(_ keyCode: UInt16) -> String {
         switch keyCode {
-        case 0x36: return "⌘ " + (L10n.isFrench ? "Droite" : "Right")
-        case 0x37: return "⌘ " + (L10n.isFrench ? "Gauche" : "Left")
-        case 0x38: return "⇧ " + (L10n.isFrench ? "Gauche" : "Left")
-        case 0x3C: return "⇧ " + (L10n.isFrench ? "Droite" : "Right")
-        case 0x3A: return "⌥ " + (L10n.isFrench ? "Gauche" : "Left")
-        case 0x3D: return "⌥ " + (L10n.isFrench ? "Droite" : "Right")
-        case 0x3B: return "⌃ " + (L10n.isFrench ? "Gauche" : "Left")
-        case 0x3E: return "⌃ " + (L10n.isFrench ? "Droite" : "Right")
+        case Constants.KeyCodes.commandRight: return "⌘ " + (L10n.isFrench ? "Droite" : "Right")
+        case Constants.KeyCodes.commandLeft: return "⌘ " + (L10n.isFrench ? "Gauche" : "Left")
+        case Constants.KeyCodes.shiftLeft: return "⇧ " + (L10n.isFrench ? "Gauche" : "Left")
+        case Constants.KeyCodes.shiftRight: return "⇧ " + (L10n.isFrench ? "Droite" : "Right")
+        case Constants.KeyCodes.optionLeft: return "⌥ " + (L10n.isFrench ? "Gauche" : "Left")
+        case Constants.KeyCodes.optionRight: return "⌥ " + (L10n.isFrench ? "Droite" : "Right")
+        case Constants.KeyCodes.controlLeft: return "⌃ " + (L10n.isFrench ? "Gauche" : "Left")
+        case Constants.KeyCodes.controlRight: return "⌃ " + (L10n.isFrench ? "Droite" : "Right")
         default: return ""
         }
     }
@@ -833,7 +832,7 @@ class HotkeyButton: NSButton {
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         if event.type == .keyDown {
             // Escape cancels
-            if event.keyCode == 0x35 {
+            if event.keyCode == Constants.KeyCodes.escape {
                 cancelRecording()
                 return true
             }
@@ -861,14 +860,10 @@ class HotkeyButton: NSButton {
     
     private func isModifierPressed(event: NSEvent, keyCode: UInt16) -> Bool {
         switch keyCode {
-        case 0x36: return event.modifierFlags.contains(.command) // Right Command
-        case 0x37: return event.modifierFlags.contains(.command) // Left Command
-        case 0x38: return event.modifierFlags.contains(.shift)   // Left Shift
-        case 0x3C: return event.modifierFlags.contains(.shift)   // Right Shift
-        case 0x3A: return event.modifierFlags.contains(.option)  // Left Option
-        case 0x3D: return event.modifierFlags.contains(.option)  // Right Option
-        case 0x3B: return event.modifierFlags.contains(.control) // Left Control
-        case 0x3E: return event.modifierFlags.contains(.control) // Right Control
+        case Constants.KeyCodes.commandRight, Constants.KeyCodes.commandLeft: return event.modifierFlags.contains(.command)
+        case Constants.KeyCodes.shiftLeft, Constants.KeyCodes.shiftRight: return event.modifierFlags.contains(.shift)
+        case Constants.KeyCodes.optionLeft, Constants.KeyCodes.optionRight: return event.modifierFlags.contains(.option)
+        case Constants.KeyCodes.controlLeft, Constants.KeyCodes.controlRight: return event.modifierFlags.contains(.control)
         default: return false
         }
     }
@@ -1009,9 +1004,3 @@ extension String {
     }
 }
 
-// MARK: - Notification Names
-
-extension Notification.Name {
-    static let hotkeySettingsChanged = Notification.Name("hotkeySettingsChanged")
-    static let historyEntryAdded = Notification.Name("historyEntryAdded")
-}

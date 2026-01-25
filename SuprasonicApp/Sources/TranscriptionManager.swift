@@ -74,7 +74,15 @@ class TranscriptionManager: ObservableObject {
                 progress = 0.4
                 
                 // This call might take a long time.
-                _ = try await AsrModels.downloadAndLoad(version: .v3)
+                // Map string version to FluidAudio enum
+                let modelVersion: AsrModelVersion = {
+                    switch Constants.targetModelVersion {
+                    case "v3": return .v3
+                    default: return .v3
+                    }
+                }()
+                
+                _ = try await AsrModels.downloadAndLoad(version: modelVersion)
                 
                 print("📂 TranscriptionManager: Download complete. Migrating to SupraSonic folder...")
                 statusMessage = L10n.isFrench ? "Organisation des fichiers..." : "Organizing files..."
@@ -110,6 +118,9 @@ class TranscriptionManager: ObservableObject {
             statusMessage = L10n.isFrench ? "Prêt" : "Ready"
             progress = 1.0
             print("✅ TranscriptionManager: Initialization complete")
+            
+            // Clean up old model versions to free disk space
+            cleanupOldModels()
         } catch {
             print("❌ TranscriptionManager: Initialization failed: \(error.localizedDescription)")
             isLoading = false
@@ -159,19 +170,28 @@ class TranscriptionManager: ObservableObject {
             try? fileManager.createDirectory(at: baseDir, withIntermediateDirectories: true)
         }
         
-        // Return the first model found in the directory if it exists
-        if let contents = try? fileManager.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil) {
-            let modelDirs = contents.filter { $0.hasDirectoryPath }
-            if let firstModel = modelDirs.first {
-                print("📂 TranscriptionManager: Found model directory: \(firstModel.lastPathComponent)")
-                return firstModel
-            }
+        // Return the specific target model path
+        let targetPath = baseDir.appendingPathComponent(Constants.targetModelName)
+        print("📂 TranscriptionManager: Looking for target model: \(targetPath.lastPathComponent)")
+        return targetPath
+    }
+    
+    /// Removes any model directories that don't match the current target model.
+    private func cleanupOldModels() {
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let baseDir = appSupport.appendingPathComponent("SupraSonic/models/huggingface.co/mlx-community")
+        
+        guard let contents = try? fileManager.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil) else {
+            return
         }
         
-        // Fallback default path if nothing exists yet
-        let defaultPath = baseDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
-        print("📂 TranscriptionManager: Using default model path: \(defaultPath.lastPathComponent)")
-        return defaultPath
+        for url in contents {
+            if url.hasDirectoryPath && url.lastPathComponent != Constants.targetModelName {
+                print("🧹 TranscriptionManager: Purging old model version: \(url.lastPathComponent)")
+                try? fileManager.removeItem(at: url)
+            }
+        }
     }
     
     private func purgeLegacyDirectory() {
