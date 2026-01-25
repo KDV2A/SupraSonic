@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # SupraSonic App Builder
-# Creates a proper .app bundle from the Swift Package
+# --------------------
+# This script builds the SupraSonic app bundle.
 
 set -e
 
@@ -16,14 +17,15 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
-echo "🔨 Building SupraSonic..."
-
 # Clean previous build
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Build the Swift package in release mode
+# Change to the app's directory
 cd "$SCRIPT_DIR/SupraSonicApp"
+
+# 1. Build the binary
+echo "🏗️ Building Swift binary..."
 swift build -c release
 
 # Get the built executable path
@@ -34,20 +36,19 @@ if [ ! -f "$EXECUTABLE_PATH" ]; then
     exit 1
 fi
 
-echo "✅ Swift build complete"
-
-# Create app bundle structure
-echo "📦 Creating app bundle..."
+# 2. Create the app bundle structure
+echo "📦 Creating app bundle structure..."
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
-# Copy executable
+# 3. Copy files
+echo "📄 Copying executable and resources..."
 cp "$EXECUTABLE_PATH" "$MACOS_DIR/SupraSonicApp"
 
-# Copy Info.plist
+# 4. Copy Plist
 cp "$SCRIPT_DIR/SupraSonicApp/Info.plist" "$CONTENTS_DIR/Info.plist"
 
-# Copy resources (icons, etc.)
+# 5. Copy Resources
 if [ -d "$SCRIPT_DIR/SupraSonicApp/Sources/Resources" ]; then
     cp -r "$SCRIPT_DIR/SupraSonicApp/Sources/Resources/"* "$RESOURCES_DIR/" 2>/dev/null || true
 fi
@@ -63,7 +64,7 @@ echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
 # Sign the app (ad-hoc signing for local testing)
 echo "🔐 Signing app (ad-hoc)..."
-codesign --force --deep --sign - "$APP_DIR"
+codesign --force --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
 
 echo ""
 echo "✅ App bundle created: $APP_DIR"

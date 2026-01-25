@@ -21,7 +21,7 @@ class ModelManager {
     
     func hasAnyModel() -> Bool {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let baseDir = appSupport.appendingPathComponent("Suprasonic/models/huggingface.co/mlx-community")
+        let baseDir = appSupport.appendingPathComponent("SupraSonic/models/huggingface.co/mlx-community")
         
         // Check if any subdirectory exists (which would be a model)
         if let contents = try? FileManager.default.contentsOfDirectory(at: baseDir, includingPropertiesForKeys: nil) {

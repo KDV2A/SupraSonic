@@ -91,6 +91,9 @@ struct L10n: Equatable {
     let setupContinue: String
     let accessibilityRequiredTitle: String
     let accessibilityRequiredMessage: String
+    let accessibilityTroubleshootTitle: String
+    let accessibilityTroubleshootMessage: String
+    let accessibilityRepairAndRelaunch: String
     
     // Detailed Setup
     let setupDiskCheck: String
@@ -110,7 +113,7 @@ struct L10n: Equatable {
     
     // English
     static let en = L10n(
-        settingsTitle: "Suprasonic Settings",
+        settingsTitle: "SupraSonic Settings",
         configurationTab: "Configuration",
         historyTab: "History",
         shortcutsSection: "KEYBOARD SHORTCUT",
@@ -119,7 +122,7 @@ struct L10n: Equatable {
         hotkeyModeToggle: "Recording On/Off",
         optionsSection: "Options",
         magicKey: "Magic Key",
-        magicKeyDesc: "The special key used to control Suprasonic.",
+        magicKeyDesc: "The special key used to control SupraSonic.",
         pushToTalk: "Push to Talk",
         pushToTalkDesc: "Hold to record, release to transcribe",
         pushToTalkDefault: "⌘ Right",
@@ -158,40 +161,43 @@ struct L10n: Equatable {
         modelDownload: "Download",
         modelDownloading: "Downloading...",
         modelRequired: "Model Required",
-        modelRequiredMessage: "Please download a transcription model to use Suprasonic. Go to Settings to download a model.",
+        modelRequiredMessage: "Please download a transcription model to use SupraSonic. Go to Settings to download a model.",
         modelSize: "Size",
         modelDelete: "Delete",
         modelActivate: "Activate",
-        setupTitle: "Welcome to Suprasonic",
-        setupMicrophoneStep: "Microphone Access\nSuprasonic needs to access your microphone to record your voice.",
+        setupTitle: "Welcome to SupraSonic",
+        setupMicrophoneStep: "Microphone Access\nSupraSonic needs to access your microphone to record your voice.",
         setupMicrophoneDone: "Microphone access granted",
-        setupAccessibilityStep: "Accessibility Access\nSuprasonic needs accessibility access to paste transcribed text and use global shortcuts.",
+        setupAccessibilityStep: "Accessibility Access\nSupraSonic needs accessibility access to paste transcribed text and use global shortcuts.",
         setupAccessibilityDone: "Accessibility access granted",
         setupGrantMicrophone: "Grant Microphone Access",
         setupOpenMicrophoneSettings: "Open Microphone Settings",
         setupOpenAccessibilitySettings: "Open Accessibility Settings",
         setupContinue: "Continue",
         accessibilityRequiredTitle: "Accessibility Access Required",
-        accessibilityRequiredMessage: "Suprasonic needs accessibility access to paste text. Please enable it in System Settings > Privacy & Security > Accessibility.",
+        accessibilityRequiredMessage: "SupraSonic needs accessibility access to paste text. Please enable it in System Settings > Privacy & Security > Accessibility.",
+        accessibilityTroubleshootTitle: "Having trouble?",
+        accessibilityTroubleshootMessage: "If you've enabled it but it's still not working, we can reset the permissions for you. This will relaunch the app.",
+        accessibilityRepairAndRelaunch: "Reset & Relaunch",
         setupDiskCheck: "Checking disk space...",
         setupInsufficientSpace: "Insufficient disk space (2 GB required).",
         setupInstalling: "Installation...",
         setupDownloadParakeet: "Downloading AI model...",
         setupReady: "Ready!",
         setupGetStarted: "Get Started",
-        setupDesc: "Welcome to the Suprasonic installation. Get ready to dictate at the speed of sound!",
+        setupDesc: "Welcome to the SupraSonic installation. Get ready to dictate at the speed of sound!",
         setupMagicKeyTip: "The magic key Command Right triggers the recording.",
         setupError: "Error",
         setupInstallationComplete: "Installation Complete",
         setupTrashInstallerPrompt: "Would you like to move the installer to the Trash?",
         yes: "Yes",
         no: "No",
-        setupDragToInstall: "Drag Suprasonic to your Applications folder"
+        setupDragToInstall: "Drag SupraSonic to your Applications folder"
     )
     
     // French
     static let fr = L10n(
-        settingsTitle: "Paramètres Suprasonic",
+        settingsTitle: "Paramètres SupraSonic",
         configurationTab: "Configuration",
         historyTab: "Historique",
         shortcutsSection: "RACCOURCI CLAVIER",
@@ -200,7 +206,7 @@ struct L10n: Equatable {
         hotkeyModeToggle: "Enregistrement On/Off",
         optionsSection: "Options",
         magicKey: "Touche Magique",
-        magicKeyDesc: "La touche spéciale utilisée pour contrôler Suprasonic.",
+        magicKeyDesc: "La touche spéciale utilisée pour contrôler SupraSonic.",
         pushToTalk: "Push to Talk",
         pushToTalkDesc: "Maintenir appuyé pour enregistrer, relâcher pour écrire",
         pushToTalkDefault: "⌘ Droite",
@@ -239,34 +245,37 @@ struct L10n: Equatable {
         modelDownload: "Télécharger",
         modelDownloading: "Téléchargement...",
         modelRequired: "Modèle requis",
-        modelRequiredMessage: "Veuillez télécharger un modèle de transcription pour utiliser Suprasonic. Allez dans les Paramètres pour télécharger un modèle.",
+        modelRequiredMessage: "Veuillez télécharger un modèle de transcription pour utiliser SupraSonic. Allez dans les Paramètres pour télécharger un modèle.",
         modelSize: "Taille",
         modelDelete: "Supprimer",
         modelActivate: "Activer",
-        setupTitle: "Bienvenue dans Suprasonic",
-        setupMicrophoneStep: "Accès au Microphone\nSuprasonic a besoin d'accéder à votre microphone pour enregistrer votre voix.",
+        setupTitle: "Bienvenue dans SupraSonic",
+        setupMicrophoneStep: "Accès au Microphone\nSupraSonic a besoin d'accéder à votre microphone pour enregistrer votre voix.",
         setupMicrophoneDone: "Accès au microphone accordé",
-        setupAccessibilityStep: "Accès à l'Accessibilité\nSuprasonic a besoin de l'accès accessibilité pour coller le texte transcrit et utiliser les raccourcis globaux.",
+        setupAccessibilityStep: "Accès à l'Accessibilité\nSupraSonic a besoin de l'accès accessibilité pour coller le texte transcrit et utiliser les raccourcis globaux.",
         setupAccessibilityDone: "Accès accessibilité accordé",
         setupGrantMicrophone: "Autoriser le Microphone",
         setupOpenMicrophoneSettings: "Ouvrir Réglages Microphone",
         setupOpenAccessibilitySettings: "Ouvrir Réglages Accessibilité",
         setupContinue: "Continuer",
         accessibilityRequiredTitle: "Accès Accessibilité Requis",
-        accessibilityRequiredMessage: "Suprasonic a besoin de l'accès accessibilité pour coller le texte. Veuillez l'activer dans Réglages Système > Confidentialité et sécurité > Accessibilité.",
+        accessibilityRequiredMessage: "SupraSonic a besoin de l'accès accessibilité pour coller le texte. Veuillez l'activer dans Réglages Système > Confidentialité et sécurité > Accessibilité.",
+        accessibilityTroubleshootTitle: "Besoin d'aide ?",
+        accessibilityTroubleshootMessage: "Si vous l'avez activé mais que cela ne marche pas, nous pouvons réinitialiser les permissions pour vous. Cela relancera l'application.",
+        accessibilityRepairAndRelaunch: "Réinitialiser et Relancer",
         setupDiskCheck: "Vérification de l'espace disque...",
         setupInsufficientSpace: "Espace disque insuffisant (2 Go requis).",
         setupInstalling: "Installation...",
         setupDownloadParakeet: "Téléchargement du modèle d'intelligence artificielle en cours...",
         setupReady: "Prêt !",
         setupGetStarted: "Commencer",
-        setupDesc: "Bienvenue dans l'installation de Suprasonic. Préparez-vous à dicter à la vitesse du son !",
+        setupDesc: "Bienvenue dans l'installation de SupraSonic. Préparez-vous à dicter à la vitesse du son !",
         setupMagicKeyTip: "La touche magique Command Droite déclenche l'enregistrement.",
         setupError: "Erreur",
         setupInstallationComplete: "Installation terminée",
         setupTrashInstallerPrompt: "Voulez-vous placer l'installeur dans la corbeille ?",
         yes: "Oui",
         no: "Non",
-        setupDragToInstall: "Faites glisser Suprasonic vers votre dossier Applications"
+        setupDragToInstall: "Faites glisser SupraSonic vers votre dossier Applications"
     )
 }

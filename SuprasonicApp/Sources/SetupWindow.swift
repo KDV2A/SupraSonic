@@ -9,6 +9,7 @@ class SetupWindow: NSWindow {
     private var progressBar: NSProgressIndicator!
     private var actionButton: NSButton!
     private var progressLabel: NSTextField!
+    private var troubleshootButton: NSButton!
     private var tipLabel: NSTextField!
     
     private let brandBlue = NSColor(red: 0, green: 0.9, blue: 1.0, alpha: 1.0)
@@ -64,7 +65,7 @@ class SetupWindow: NSWindow {
         logoView.imageScaling = .scaleProportionallyUpOrDown
         
         // Title
-        titleLabel = NSTextField(labelWithString: "Suprasonic")
+        titleLabel = NSTextField(labelWithString: "SupraSonic")
         titleLabel.font = NSFont.systemFont(ofSize: 28, weight: .bold)
         titleLabel.textColor = .labelColor
         
@@ -119,11 +120,18 @@ class SetupWindow: NSWindow {
         actionButton.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         actionButton.keyEquivalent = "\r"
         
+        troubleshootButton = NSButton(title: l.accessibilityTroubleshootTitle, target: self, action: #selector(showTroubleshooting))
+        troubleshootButton.bezelStyle = .recessed
+        troubleshootButton.controlSize = .small
+        troubleshootButton.font = NSFont.systemFont(ofSize: 12)
+        troubleshootButton.isHidden = true
+        
         container.addArrangedSubview(logoView)
         container.addArrangedSubview(titleLabel)
         container.addArrangedSubview(descLabel)
         container.addArrangedSubview(progressStack)
         container.addArrangedSubview(actionButton)
+        container.addArrangedSubview(troubleshootButton)
         
         NSLayoutConstraint.activate([
             container.centerXAnchor.constraint(equalTo: visualEffect.centerXAnchor),
@@ -246,7 +254,7 @@ class SetupWindow: NSWindow {
             self.progressBar.isHidden = true
             self.progressLabel.isHidden = true
             
-            self.actionButton.title = L10n.isFrench ? "Commencer" : "Start Using Suprasonic"
+            self.actionButton.title = L10n.isFrench ? "Commencer" : "Start Using SupraSonic"
             self.actionButton.isEnabled = true
             self.actionButton.isHidden = false
             self.actionButton.action = #selector(self.finishSetup)
@@ -280,16 +288,40 @@ class SetupWindow: NSWindow {
         
         return await withCheckedContinuation { continuation in
             var attempts = 0
-            Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
+            Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
                 attempts += 1
+                
+                // Show troubleshoot button after 10 seconds of waiting
+                if attempts == 5 {
+                    DispatchQueue.main.async {
+                        self?.troubleshootButton.isHidden = false
+                    }
+                }
+                
                 if AXIsProcessTrusted() {
                     timer.invalidate()
+                    DispatchQueue.main.async { self?.troubleshootButton.isHidden = true }
                     continuation.resume(returning: true)
                 } else if attempts > 60 {
                     timer.invalidate()
                     continuation.resume(returning: false)
                 }
             }
+        }
+    }
+    
+    @objc private func showTroubleshooting() {
+        let l = L10n.current
+        let alert = NSAlert()
+        alert.messageText = l.accessibilityTroubleshootTitle
+        alert.informativeText = l.accessibilityTroubleshootMessage
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: l.accessibilityRepairAndRelaunch)
+        alert.addButton(withTitle: l.cancel)
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            PermissionsManager.shared.resetAccessibility()
+            PermissionsManager.shared.relaunchApp()
         }
     }
     

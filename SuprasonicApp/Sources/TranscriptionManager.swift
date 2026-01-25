@@ -76,11 +76,11 @@ class TranscriptionManager: ObservableObject {
                 // This call might take a long time.
                 _ = try await AsrModels.downloadAndLoad(version: .v3)
                 
-                print("📂 TranscriptionManager: Download complete. Migrating to Suprasonic folder...")
+                print("📂 TranscriptionManager: Download complete. Migrating to SupraSonic folder...")
                 statusMessage = L10n.isFrench ? "Organisation des fichiers..." : "Organizing files..."
                 progress = 0.8
-                // Immediately migrate to Suprasonic folder and CLEAN UP FluidAudio
-                try migrateModelToSuprasonic()
+                // Immediately migrate to SupraSonic folder and CLEAN UP FluidAudio
+                try migrateModelToSupraSonic()
                 
                 // RELOAD from the final destination to ensure we have correct paths
                 let finalModelURL = getModelDirectoryURL()
@@ -126,7 +126,7 @@ class TranscriptionManager: ObservableObject {
         }
         
         let paths = [
-            appSupport.appendingPathComponent("Suprasonic/models"),
+            appSupport.appendingPathComponent("SupraSonic/models"),
             appSupport.appendingPathComponent("FluidAudio/models")
         ]
         
@@ -152,7 +152,7 @@ class TranscriptionManager: ObservableObject {
     private func getModelDirectoryURL() -> URL {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let baseDir = appSupport.appendingPathComponent("Suprasonic/models/huggingface.co/mlx-community")
+        let baseDir = appSupport.appendingPathComponent("SupraSonic/models/huggingface.co/mlx-community")
         
         // Ensure base directory exists
         if !fileManager.fileExists(atPath: baseDir.path) {
@@ -185,15 +185,15 @@ class TranscriptionManager: ObservableObject {
         }
     }
     
-    private func migrateModelToSuprasonic() throws {
+    private func migrateModelToSupraSonic() throws {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         
         // Source: FluidAudio default download path
         let sourceBase = appSupport.appendingPathComponent("FluidAudio/models/huggingface.co/mlx-community")
         
-        // Destination: Suprasonic path
-        let destBase = appSupport.appendingPathComponent("Suprasonic/models/huggingface.co/mlx-community")
+        // Destination: SupraSonic path
+        let destBase = appSupport.appendingPathComponent("SupraSonic/models/huggingface.co/mlx-community")
         
         // Check if source exists
         guard fileManager.fileExists(atPath: sourceBase.path) else {
@@ -214,7 +214,7 @@ class TranscriptionManager: ObservableObject {
         let destModel = destBase.appendingPathComponent(modelName)
         
         if !fileManager.fileExists(atPath: destModel.path) {
-            print("📂 Migration: Moving \(modelName) to Suprasonic...")
+            print("📂 Migration: Moving \(modelName) to SupraSonic...")
             
             // Create parent directories
             try fileManager.createDirectory(at: destBase, withIntermediateDirectories: true)

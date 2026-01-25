@@ -64,7 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func shouldShowSetup() -> Bool {
         // 1. If setup was never completed, ALWAYS show it
-        let setupCompleted = UserDefaults.standard.bool(forKey: "SuprasonicSetupCompleted")
+        let setupCompleted = UserDefaults.standard.bool(forKey: "SupraSonicSetupCompleted")
         if !setupCompleted {
             print("🚀 App: Onboarding never completed. Showing setup.")
             return true
@@ -111,7 +111,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.removeObserver(self, name: NSNotification.Name("SetupComplete"), object: nil)
         
         // 2. Mark as completed in UserDefaults
-        UserDefaults.standard.set(true, forKey: "SuprasonicSetupCompleted")
+        UserDefaults.standard.set(true, forKey: "SupraSonicSetupCompleted")
         UserDefaults.standard.synchronize()
         
         // Use a single serial cleanup sequence on main queue
@@ -169,7 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize Parakeet
         self.initializeTranscription()
         
-        print("🎤 Suprasonic ready! Hold Right Command to record.")
+        print("🎤 SupraSonic ready! Hold Right Command to record.")
     }
     
     private func checkCompatibility() -> Bool {
@@ -179,8 +179,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let alert = NSAlert()
             alert.messageText = L10n.isFrench ? "Version macOS non supportée" : "Unsupported macOS Version"
             alert.informativeText = L10n.isFrench 
-                ? "Suprasonic nécessite macOS 14.0 (Sonoma) ou plus récent pour fonctionner avec le moteur Parakeet."
-                : "Suprasonic requires macOS 14.0 (Sonoma) or newer to run with the Parakeet engine."
+                ? "SupraSonic nécessite macOS 14.0 (Sonoma) ou plus récent pour fonctionner avec le moteur Parakeet."
+                : "SupraSonic requires macOS 14.0 (Sonoma) or newer to run with the Parakeet engine."
             alert.alertStyle = .critical
             alert.addButton(withTitle: L10n.isFrench ? "Quitter" : "Quit")
             alert.runModal()
@@ -193,8 +193,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = L10n.isFrench ? "Mac non compatible" : "Incompatible Mac"
         alert.informativeText = L10n.isFrench
-            ? "Suprasonic est optimisé pour les processeurs Apple Silicon (M1, M2, M3, M4). Les processeurs Intel ne sont pas supportés par le moteur de transcription actuel."
-            : "Suprasonic is optimized for Apple Silicon processors (M1, M2, M3, M4). Intel processors are not supported by the current transcription engine."
+            ? "SupraSonic est optimisé pour les processeurs Apple Silicon (M1, M2, M3, M4). Les processeurs Intel ne sont pas supportés par le moteur de transcription actuel."
+            : "SupraSonic is optimized for Apple Silicon processors (M1, M2, M3, M4). Intel processors are not supported by the current transcription engine."
         alert.alertStyle = .critical
         alert.addButton(withTitle: L10n.isFrench ? "Quitter" : "Quit")
         alert.runModal()
@@ -291,7 +291,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.messageText = "Microphone Access Required"
-            alert.informativeText = "Suprasonic needs microphone access to transcribe your speech. Please enable it in System Settings > Privacy & Security > Microphone."
+            alert.informativeText = "SupraSonic needs microphone access to transcribe your speech. Please enable it in System Settings > Privacy & Security > Microphone."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open Settings")
             alert.addButton(withTitle: "Cancel")
@@ -319,7 +319,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             // 2. Try in nested SPM resource bundle (for relocated bundles)
             if icon == nil {
-                if let bundleURL = Bundle.main.url(forResource: "SuprasonicApp_SuprasonicApp", withExtension: "bundle"),
+                if let bundleURL = Bundle.main.url(forResource: "SupraSonicApp_SupraSonicApp", withExtension: "bundle"),
                    let resourceBundle = Bundle(url: bundleURL) {
                     if let iconURL = resourceBundle.url(forResource: "suprasonic-icon-black", withExtension: "png") {
                         icon = NSImage(contentsOf: iconURL)
@@ -333,13 +333,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 button.image = icon
             } else {
                 // Fallback to system symbol
-                button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Suprasonic")
+                button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "SupraSonic")
                 button.image?.isTemplate = true
             }
         }
         
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Suprasonic", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "SupraSonic", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
         
         // Microphone submenu

@@ -5,62 +5,56 @@ Fast local speech-to-text for macOS using Parakeet MLX on Apple Silicon.
 ## Architecture
 
 ```
-[Microphone] → [Swift App (AVAudioEngine)] → [Unix Socket] → [Python ASR Server] → [Paste Text]
-                    ↓
-            [Dynamic Island UI]
+[Microphone] → [SupraSonicApp (AVAudioEngine)] → [FluidAudio (Parakeet MLX)] → [Paste Text]
+                        ↓
+                [Dynamic Island HUD]
 ```
 
 ## Quick Start
 
-### 1. Start ASR Server
+### 1. Build & Run
 ```bash
-cd asr-backend
-python3 asr_server.py
+./build-app.sh
+open build/SupraSonic.app
 ```
 
-### 2. Run App
-```bash
-cd SupraSonicApp
-swift run
-```
+### 2. Initial Setup
+Follow the onboarding to grant Microphone and Accessibility permissions. The app will automatically download the required ML model (~600MB).
 
 ### 3. Use
 - **Hold Right Command (⌘)** → Record
 - **Release** → Transcribe & Paste
 
+(You can customize the "Magic Key" and behavior in the Settings menu)
+
 ## Requirements
 
-- macOS 13+ (Ventura)
-- Apple Silicon (M1/M2/M3)
-- Python 3.11+
+- macOS 14.0+ (Sonoma)
+- Apple Silicon (M1/M2/M3/M4)
+- No Python required (Native Swift)
 
 ## Performance
 
-- Model warmup on startup for instant inference
-- ~100ms inference for 2s audio (RTF ~0.05)
-- 16kHz mono audio capture
-- Greedy decoding for speed
+- Model warmup on startup for instant inference.
+- Powered by NVIDIA Parakeet TDT via MLX/FluidAudio.
+- 16kHz mono audio capture.
 
 ## Permissions
 
 Grant these in System Settings > Privacy & Security:
-- **Microphone**: For audio capture
-- **Accessibility**: For global hotkey & paste
+- **Microphone**: For audio capture.
+- **Accessibility**: For global hotkey & paste functionality.
 
-## Files
+## Project Structure
 
 ```
 SupraSonic/
-├── asr-backend/
-│   ├── asr_server.py      # Python ASR server
-│   └── requirements.txt
-├── SupraSonicApp/
+├── SupraSonicApp/        # Swift Package source code
 │   ├── Package.swift
-│   └── Sources/
-│       ├── main.swift
-│       ├── AppDelegate.swift
-│       └── OverlayWindow.swift
-├── start.sh               # Launch both apps
+│   └── Sources/          # App logic and UI
+├── build-app.sh          # Quick build script
+├── build-full-app.sh     # Production build script
+├── create-dmg.sh         # DMG installer creator
 └── README.md
 ```
 

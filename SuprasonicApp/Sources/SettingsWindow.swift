@@ -152,7 +152,7 @@ class SettingsWindow: NSWindow {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         
-        let versionLabel = NSTextField(labelWithString: "Suprasonic v\(version) (\(build))")
+        let versionLabel = NSTextField(labelWithString: "SupraSonic v\(version) (\(build))")
         versionLabel.font = NSFont.systemFont(ofSize: 11)
         versionLabel.textColor = .secondaryLabelColor
         versionLabel.alignment = .center

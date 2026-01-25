@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Suprasonic</string>
+    <string>SupraSonic</string>
     <key>CFBundleDisplayName</key>
-    <string>Suprasonic</string>
+    <string>SupraSonic</string>
     <key>CFBundleIdentifier</key>
     <string>com.suprasonic.app</string>
     <key>CFBundleVersion</key>
@@ -15,7 +15,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>SuprasonicApp</string>
+    <string>SupraSonicApp</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -31,13 +31,13 @@
     
     <!-- Privacy permissions descriptions -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Suprasonic needs microphone access to record and transcribe your voice.</string>
+    <string>SupraSonic needs microphone access to record and transcribe your voice.</string>
     
     <!-- For global hotkeys and keyboard monitoring -->
     <key>NSAppleEventsUsageDescription</key>
-    <string>Suprasonic needs to send keystrokes to paste transcribed text.</string>
+    <string>SupraSonic needs to send keystrokes to paste transcribed text.</string>
     
     <key>NSAccessibilityUsageDescription</key>
-    <string>Suprasonic needs accessibility access to paste transcribed text and use global shortcuts.</string>
+    <string>SupraSonic needs accessibility access to paste transcribed text and use global shortcuts.</string>
 </dict>
 </plist>

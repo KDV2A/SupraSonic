@@ -57,7 +57,7 @@ class PermissionsManager {
     
     // MARK: - Show Setup Guide
     
-    private let setupCompletedKey = "SuprasonicSetupCompleted"
+    private let setupCompletedKey = "SupraSonicSetupCompleted"
     
     func showSetupGuideIfNeeded(completion: @escaping () -> Void) {
         let micStatus = checkMicrophonePermission()
@@ -123,4 +123,49 @@ class PermissionsManager {
             }
         }
     }
+    
+    // MARK: - Advanced Repair (Pro Logic)
+    
+    /// Resets the accessibility permissions for the app using tccutil.
+    /// This is used to fix "stale" TCC states where macOS doesn't recognize the permission change.
+    func resetAccessibility() {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        print("🛠️ Permissions: Resetting TCC for \(bundleID)...")
+        
+        // Ensure onboarding reappears on relaunch
+        UserDefaults.standard.set(false, forKey: "SupraSonicSetupCompleted")
+        UserDefaults.standard.synchronize()
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", "Accessibility", bundleID]
+        
+        try? process.run()
+        process.waitUntilExit()
+    }
+    
+    /// Relaunches the application. Required after a TCC reset for changes to take effect reliably.
+    /// This uses a decoupled process (open -n) to ensure a fresh instance starts even as the current one terminates.
+    func relaunchApp() {
+        let appURL = Bundle.main.bundleURL
+        print("🚀 Permissions: Relaunching from \(appURL.path)...")
+        
+        // Spawn a decoupled 'open' command to launch a new instance
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", appURL.path]
+        
+        do {
+            try process.run()
+            // Give it a tiny moment to start spawning before we die
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NSApp.terminate(nil)
+            }
+        } catch {
+            print("❌ Permissions: Failed to relaunch: \(error)")
+            // Fallback: just quit and hope user relanches
+            NSApp.terminate(nil)
+        }
+    }
 }
+

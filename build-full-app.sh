@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Suprasonic Full App Builder
-# Creates a self-contained .app bundle with WhisperKit (no Python needed)
+# SupraSonic Full App Builder
+# -------------------------
+# This script builds the SupraSonic app bundle including all resources.
 
 set -e
 
-APP_NAME="Suprasonic"
+APP_NAME="SupraSonic"
 BUNDLE_ID="com.suprasonic.app"
 VERSION="1.0.0"
 
@@ -16,7 +17,7 @@ CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
-echo "🔨 Building Suprasonic (WhisperKit Native)..."
+echo "🔨 Building SupraSonic (WhisperKit Native)..."
 echo "   This will create a self-contained Swift app."
 echo ""
 
@@ -29,19 +30,15 @@ echo "📦 Building Swift app with WhisperKit..."
 SWIFT_BUILD_DIR="/tmp/suprasonic-swift-build"
 rm -rf "$SWIFT_BUILD_DIR"
 mkdir -p "$SWIFT_BUILD_DIR"
-cp -r "$SCRIPT_DIR/SuprasonicApp" "$SWIFT_BUILD_DIR/"
-cd "$SWIFT_BUILD_DIR/SuprasonicApp"
-rm -rf .build
+cp -r "$SCRIPT_DIR/SupraSonicApp" "$SWIFT_BUILD_DIR/"
+cd "$SWIFT_BUILD_DIR/SupraSonicApp"
 
-# Resolve and fetch dependencies first
-echo "📥 Fetching dependencies (WhisperKit)..."
-swift package resolve
-
-# Build release
+# 1. Build the binary
+echo "🏗️ Building Swift binary..."
 swift build -c release
-cd "$SCRIPT_DIR"
 
-EXECUTABLE_PATH="$SWIFT_BUILD_DIR/SuprasonicApp/.build/release/SuprasonicApp"
+# Get the built executable path
+EXECUTABLE_PATH="$SWIFT_BUILD_DIR/SupraSonicApp/.build/release/SupraSonicApp"
 
 if [ ! -f "$EXECUTABLE_PATH" ]; then
     echo "❌ Build failed: executable not found"
@@ -56,58 +53,55 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # Copy executable
-cp "$EXECUTABLE_PATH" "$MACOS_DIR/SuprasonicApp"
+cp "$EXECUTABLE_PATH" "$MACOS_DIR/SupraSonicApp"
 
-# Copy Info.plist
-cp "$SCRIPT_DIR/SuprasonicApp/Info.plist" "$CONTENTS_DIR/Info.plist"
+# 4. Copy Plist
+cp "$SCRIPT_DIR/SupraSonicApp/Info.plist" "$CONTENTS_DIR/Info.plist"
 
-# Copy app resources
-if [ -d "$SCRIPT_DIR/SuprasonicApp/Sources/Resources" ]; then
-    ditto "$SCRIPT_DIR/SuprasonicApp/Sources/Resources/" "$RESOURCES_DIR/"
+# 5. Copy Resources
+if [ -d "$SCRIPT_DIR/SupraSonicApp/Sources/Resources" ]; then
+    ditto "$SCRIPT_DIR/SupraSonicApp/Sources/Resources/" "$RESOURCES_DIR/"
 fi
 
-# Copy app icon
-if [ -f "$SCRIPT_DIR/SuprasonicApp/Sources/Resources/AppIcon.icns" ]; then
-    ditto "$SCRIPT_DIR/SuprasonicApp/Sources/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
-    echo "✅ App icon copied"
+# 6. Copy App Icon
+if [ -f "$SCRIPT_DIR/SupraSonicApp/Sources/Resources/AppIcon.icns" ]; then
+    ditto "$SCRIPT_DIR/SupraSonicApp/Sources/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
-# Copy SPM bundle resources from the /tmp build
-BUNDLE_RESOURCES="$SWIFT_BUILD_DIR/SuprasonicApp/.build/release/SuprasonicApp_SuprasonicApp.bundle"
+# 7. Copy Bundle Resources
+# Handle the SPM resource bundle
+BUNDLE_RESOURCES="$SWIFT_BUILD_DIR/SupraSonicApp/.build/release/SupraSonicApp_SupraSonicApp.bundle"
 if [ -d "$BUNDLE_RESOURCES" ]; then
-    ditto "$BUNDLE_RESOURCES" "$RESOURCES_DIR/SuprasonicApp_SuprasonicApp.bundle"
+    ditto "$BUNDLE_RESOURCES" "$RESOURCES_DIR/SupraSonicApp_SupraSonicApp.bundle"
 fi
+
+# 8. Set up framework structure if needed (Optional for now)
 
 # Create PkgInfo
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-echo "ℹ️ WhisperKit models will be downloaded by the app on first launch"
+# 9. Signing
+echo "🔐 Signing app..."
 
-# Ad-hoc sign the app bundle with entitlements
-echo "🔐 Signing app bundle components..."
-
-# 1. Sign the sub-bundle if it exists
-BUNDLE_PATH="$RESOURCES_DIR/SuprasonicApp_SuprasonicApp.bundle"
+# Sign the helper bundle if it exists
+BUNDLE_PATH="$RESOURCES_DIR/SupraSonicApp_SupraSonicApp.bundle"
 if [ -d "$BUNDLE_PATH" ]; then
-    echo "   Signing sub-bundle..."
-    codesign --force --sign - "$BUNDLE_PATH" || true
+    codesign --force --sign - "$BUNDLE_PATH"
 fi
 
-# 2. Sign the main executable
-echo "   Signing main executable..."
-codesign --force --sign - --entitlements "$SCRIPT_DIR/SuprasonicApp/SuprasonicApp.entitlements" "$MACOS_DIR/SuprasonicApp"
+# Sign main binary with entitlements
+codesign --force --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$MACOS_DIR/SupraSonicApp"
 
-# 3. Sign the app bundle
-echo "   Signing app bundle..."
-codesign --force --sign - --entitlements "$SCRIPT_DIR/SuprasonicApp/SuprasonicApp.entitlements" "$APP_DIR"
+# Sign entire bundle
+codesign --force --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
 
-echo "✅ App signed with ad-hoc signature"
+echo ""
+echo "✅ SupraSonic built successfully!"
 
 # Calculate final size
 APP_SIZE=$(du -sh "$APP_DIR" | cut -f1)
 
 echo ""
-echo "✅ Suprasonic built successfully!"
 echo ""
 echo "   Location: $APP_DIR"
 echo "   Size: $APP_SIZE (no Python, no bundled models)"

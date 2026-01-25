@@ -1,12 +1,13 @@
 #!/bin/bash
 
-# Suprasonic DMG Creator
-# Creates a distributable DMG with drag-to-Applications functionality
+# SupraSonic DMG Creator
+# --------------------
+# This script creates a disk image for SupraSonic.
 
 set -e
 
-APP_NAME="Suprasonic"
-DMG_NAME="Suprasonic-Installer"
+APP_NAME="SupraSonic"
+DMG_NAME="SupraSonic-Installer"
 VERSION="1.0.0"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
