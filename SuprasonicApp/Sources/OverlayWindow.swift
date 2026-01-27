@@ -114,20 +114,21 @@ class WaveformView: NSView {
     }
     
     func addLevel(_ level: Float) {
-        // Boost level sensitivity
-        let amplified = min(level * 15, 1.5)
+        // Boost level sensitivity - snappy and responsive
+        // Clamp top level to prevent overflow (1.0 is full height)
+        let amplified = min(level * 22, 1.2)
         
         for i in 0..<targetLevels.count {
-            // Different bars react differently to the same sound for a more organic feel
-            let speed = Float.random(in: 0.3...1.2)
-            let noise = Float.random(in: 0.8...1.2)
-            
             // Central bars are more sensitive
             let centerIdx = Float(targetLevels.count) / 2.0
             let distFromCenter = abs(Float(i) - centerIdx) / centerIdx
-            let multiplier = 1.0 - (distFromCenter * 0.6)
             
-            let newTarget = amplified * multiplier * noise * speed
+            // Per-bar organic variance
+            let multiplier = 1.0 - (distFromCenter * 0.6)
+            let variance = 0.85 + (Float.random(in: 0.0...0.3))
+            
+            // Final target value clamped to 1.2 max
+            let newTarget = min(amplified * multiplier * variance, 1.2)
             targetLevels[i] = max(targetLevels[i], newTarget)
         }
     }
@@ -136,6 +137,7 @@ class WaveformView: NSView {
         levels = Array(repeating: 0.1, count: 30)
         targetLevels = Array(repeating: 0.1, count: 30)
         startAnimating()
+        needsDisplay = true
     }
     
     func stop() {
@@ -144,19 +146,23 @@ class WaveformView: NSView {
     
     private func decayLevels() {
         for i in 0..<levels.count {
-            // Snappier transition to target
             let diff = targetLevels[i] - levels[i]
+            
+            // Organic rise/fall speeds
+            let riseSpeed = 0.35 + (Float(i % 3) * 0.05)
+            let fallSpeed = 0.15 + (Float(i % 5) * 0.02)
+            
             if diff > 0 {
-                levels[i] += diff * 0.3 // Rise fast
+                levels[i] += diff * riseSpeed
             } else {
-                levels[i] += diff * 0.15 // Fall slower
+                levels[i] += diff * fallSpeed
             }
             
-            // Constant slight vibration even in silence
-            let idle = 0.05 + Float.random(in: 0...0.03)
-            
             // Decaying target towards idle
-            targetLevels[i] = targetLevels[i] * 0.92
+            let idle: Float = 0.05
+            let decayRate = 0.85 + (Float(i % 4) * 0.02)
+            
+            targetLevels[i] = targetLevels[i] * decayRate
             if targetLevels[i] < idle {
                 targetLevels[i] = idle
             }

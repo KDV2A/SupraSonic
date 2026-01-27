@@ -17,19 +17,34 @@ namespace SupraSonicWin
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            try 
+            if (!Models.ModelManager.Shared.HasTargetModel())
             {
-                m_rust = new RustCore();
-                m_rust.Initialize();
-                Debug.WriteLine("🦀 Rust Core Initialized on Windows");
+                Debug.WriteLine("🚀 Windows: Model missing. Launching Setup...");
+                m_setupWindow = new SetupWindow();
+                m_setupWindow.Activate();
+                
+                // When setup closes, we should probably relaunch or show MainWindow
+                m_setupWindow.Closed += (s, e) => {
+                    if (Models.ModelManager.Shared.HasTargetModel())
+                    {
+                        m_window = new MainWindow();
+                        m_window.Activate();
+                    }
+                    else
+                    {
+                        Application.Current.Exit();
+                    }
+                };
             }
-            catch (Exception ex)
+            else
             {
-                Debug.WriteLine($"❌ Rust Initialization Failed: {ex.Message}");
+                Debug.WriteLine("✅ Windows: Model found. Launching Main App...");
+                m_window = new MainWindow();
+                m_window.Activate();
             }
-
-            m_window = new MainWindow();
-            m_window.Activate();
         }
+
+        private MainWindow m_window;
+        private SetupWindow m_setupWindow;
     }
 }

@@ -56,8 +56,10 @@ class SetupWindow: NSWindow {
         // Logo
         logoView = NSImageView()
         logoView.translatesAutoresizingMaskIntoConstraints = false
-        if let logo = NSImage(named: "suprasonic-logo") {
+        if let logo = NSImage(named: "icon_512x512@2x.png") {
             logoView.image = logo
+        } else if let fallbackLogo = NSImage(named: "AppIcon.icns") {
+             logoView.image = fallbackLogo
         } else {
             logoView.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: nil)
             logoView.contentTintColor = brandBlue

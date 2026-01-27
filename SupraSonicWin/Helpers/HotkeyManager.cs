@@ -6,73 +6,79 @@ using Microsoft.UI.Interop;
 namespace SupraSonicWin.Helpers
 {
     /// <summary>
-    /// Manages global hotkeys for Windows using RegisterHotKey and a native message hook.
+    /// Manages global hotkeys for Windows using a Low-Level Keyboard Hook.
+    /// Supports Push-to-Talk and Toggle modes.
     /// </summary>
     public class HotkeyManager
     {
-        [DllImport("user32.dll")]
-        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
 
-        private const int GWL_WNDPROC = -4;
-        private const int WM_HOTKEY = 0x0312;
-        private const int HOTKEY_ID = 9000;
-        
-        // Modifiers
-        private const uint MOD_ALT = 0x0001;
-        private const uint MOD_CONTROL = 0x0002;
-        private const uint MOD_SHIFT = 0x0004;
-        private const uint MOD_WIN = 0x0008;
-        private const uint MOD_NOREPEAT = 0x4000;
+        private const int WH_KEYBOARD_LL = 13;
+        private const int WM_KEYDOWN = 0x0100;
+        private const int WM_KEYUP = 0x0101;
+        private const int WM_SYSKEYDOWN = 0x0104;
+        private const int WM_SYSKEYUP = 0x0105;
+        private const int VK_RMENU = 0xA5; // Right Alt / Alt Gr
 
-        private IntPtr m_hWnd;
-        private IntPtr m_oldWndProc;
-        private WndProcDelegate m_newWndProc;
-
-        private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+        private LowLevelKeyboardProc m_proc;
+        private IntPtr m_hookId = IntPtr.Zero;
 
         public event Action OnHotkeyPressed;
+        public event Action OnHotkeyReleased;
 
         public void Setup(Window window)
         {
-            m_hWnd = WindowNative.GetWindowHandle(window);
-            
-            // Register hotkey: Alt Gr (Right Alt)
-            // Alt Gr is logically Ctrl + Alt on Windows
-            uint vk_alt_gr = 0x11; // VK_CONTROL (Wait, RegisterHotKey uses modifiers + VK)
-            // Let's use Right Alt specifically
-            const uint VK_RMENU = 0xA5; 
-            RegisterHotKey(m_hWnd, HOTKEY_ID, MOD_NOREPEAT, VK_RMENU);
-
-            // Hook into the window message loop
-            m_newWndProc = new WndProcDelegate(WndProc);
-            m_oldWndProc = SetWindowLongPtr(m_hWnd, GWL_WNDPROC, Marshal.GetFunctionPointerForDelegate(m_newWndProc));
+            m_proc = HookCallback;
+            m_hookId = SetHook(m_proc);
         }
 
         public void Cleanup()
         {
-            if (m_hWnd != IntPtr.Zero)
+            if (m_hookId != IntPtr.Zero)
             {
-                UnregisterHotKey(m_hWnd, HOTKEY_ID);
-                SetWindowLongPtr(m_hWnd, GWL_WNDPROC, m_oldWndProc);
+                UnhookWindowsHookEx(m_hookId);
             }
         }
 
-        private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        private IntPtr SetHook(LowLevelKeyboardProc proc)
         {
-            if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
+            using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
+            using (var curModule = curProcess.MainModule)
             {
-                OnHotkeyPressed?.Invoke();
+                return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
             }
-            return CallWindowProc(m_oldWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                int vkCode = Marshal.ReadInt32(lParam);
+                int targetVK = Models.SettingsManager.Shared.SelectedHotkeyVK;
+
+                if (vkCode == targetVK)
+                {
+                    if (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN)
+                        OnHotkeyPressed?.Invoke();
+                    else if (wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP)
+                        OnHotkeyReleased?.Invoke();
+                    
+                    return (IntPtr)1; // Consume key
+                }
+            }
+            return CallNextHookEx(m_hookId, nCode, wParam, lParam);
         }
     }
 }

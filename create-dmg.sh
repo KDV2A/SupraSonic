@@ -48,7 +48,7 @@ hdiutil detach "$MOUNT_POINT" 2>/dev/null || true
 echo "Mounting DMG to $MOUNT_POINT..."
 hdiutil attach -readwrite -noverify -noautoopen -mountpoint "$MOUNT_POINT" "$DMG_RW"
 
-# Copy app
+# 5. Copy app
 echo "Copying app to DMG..."
 ditto "$APP_PATH" "$MOUNT_POINT/$APP_NAME.app"
 

@@ -3,7 +3,7 @@ import AVFoundation
 import Carbon.HIToolbox
 import SupraSonicCore
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var statusItem: NSStatusItem!
     private var overlayWindow: OverlayWindow?
     private var settingsWindow: SettingsWindow?
@@ -26,7 +26,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupWindow: SetupWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 1. Check system compatibility
+        // 1. Check if running from DMG (Anti-Translocation)
+        let bundlePath = Bundle.main.bundleURL.path
+        if bundlePath.contains("/Volumes/") && !bundlePath.contains("/Users/") {
+            print("🚫 App: Running from DMG/Translocated. Blocking.")
+            let alert = NSAlert()
+            alert.messageText = L10n.isFrench ? "Installation requise" : "Installation Required"
+            alert.informativeText = L10n.isFrench 
+                ? "Merci de glisser l’application dans le dossier Applications avant de l’ouvrir."
+                : "Please drag the application to the Applications folder before opening it."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: L10n.isFrench ? "Quitter" : "Quit")
+            alert.runModal()
+            NSApplication.shared.terminate(nil)
+            return
+        }
+
+        // 2. Check system compatibility
         if !checkCompatibility() {
             return
         }
@@ -63,6 +79,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. If setup was never completed, ALWAYS show it
         let setupCompleted = UserDefaults.standard.bool(forKey: Constants.Keys.setupCompleted)
         print("🚀 Onboarding debug: setupCompleted=\(setupCompleted)")
+        
         if !setupCompleted {
             print("🚀 App: Onboarding never completed. Showing setup.")
             return true
@@ -83,7 +100,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // 4. Force setup if critical pieces are missing, even if "completed" before
-        print("🚀 App: Setup completed but requirements missing. Re-showing setup.")
+        if !hasMic { print("🚀 App: Missing Microphone Permission. Re-showing setup.") }
+        if !hasAccessibility { print("🚀 App: Missing Accessibility Permission. Re-showing setup.") }
+        if !hasModel { print("🚀 App: Missing ML Model. Re-showing setup.") }
+        if !isInApplications && Bundle.main.bundleURL.path.contains(".dmg") { print("🚀 App: App running from DMG. Re-showing setup (Translocation check).") }
+        
         return true
     }
     
@@ -163,17 +184,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func proceedWithApp() {
         // Initialize Rust Core
-        do {
-            let state = try AppState()
-            self.rustState = state
-            print("🦀 Rust Core Initialized")
-            
-            // Set listener for raw audio data
-            state.setListener(listener: RustAudioListener(delegate: self))
-            
-        } catch {
-            print("❌ Rust Core Initialization Failed: \(error)")
-        }
+        let state = AppState()
+        self.rustState = state
+        print("🦀 Rust Core Initialized")
+        
+        // Set listener for raw audio data
+        state.setListener(listener: RustAudioListener(delegate: self))
         
         // Initialize ML Engine (Parakeet v3 via FluidAudio)
         Task {
@@ -329,9 +345,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var icon: NSImage?
             
             // 1. Try main bundle Resources folder (primary location for bundled app)
-            // NOTE: We avoid Bundle.module here because it contains a fatalError assertion 
-            // in generated SPM code if the resource bundle is missing, which causes 
-            // a crash during development or when run from the build folder.
             if let iconURL = Bundle.main.url(forResource: "suprasonic-icon-black", withExtension: "png") {
                 icon = NSImage(contentsOf: iconURL)
             }
@@ -340,7 +353,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if icon == nil {
                 if let bundleURL = Bundle.main.url(forResource: "SupraSonicApp_SupraSonicApp", withExtension: "bundle"),
                    let resourceBundle = Bundle(url: bundleURL) {
-                    if let iconURL = resourceBundle.url(forResource: "suprasonic-icon-black", withExtension: "png") {
+                    if let iconURL = resourceBundle.url(forResource: "icon_32x32@2x", withExtension: "png") {
                         icon = NSImage(contentsOf: iconURL)
                     }
                 }
@@ -622,9 +635,9 @@ extension AppDelegate: RustAudioDelegate {
                 
                 print("📝 Parakeet Result: \(text)")
                 if !text.isEmpty {
-                    DispatchQueue.main.async {
+                    DispatchQueue.main.async { [weak self] in
                         SettingsManager.shared.addToHistory(text)
-                        self.handleTranscriptionResult(text)
+                        self?.handleTranscriptionResult(text)
                     }
                 }
             } catch {
@@ -634,8 +647,8 @@ extension AppDelegate: RustAudioDelegate {
     }
     
     func handleAudioLevel(_ level: Float) {
-        DispatchQueue.main.async {
-            self.overlayWindow?.updateLevel(level)
+        DispatchQueue.main.async { [weak self] in
+            self?.overlayWindow?.updateLevel(level)
         }
     }
 }

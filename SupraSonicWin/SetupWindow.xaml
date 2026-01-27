@@ -6,8 +6,8 @@
 
     <Grid Padding="40" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <StackPanel Spacing="20" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock Text="Welcome to SupraSonic" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
-            <TextBlock Text="We need to download the Parakeet TDT v3 model (approx 600MB) and check permissions." 
+            <TextBlock x:Name="WelcomeText" Text="Welcome to SupraSonic" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center"/>
+            <TextBlock x:Name="DescriptionText" Text="..." 
                        TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center"/>
             
             <ProgressBar x:Name="SetupProgressBar" Minimum="0" Maximum="100" Value="0" Width="300" Height="20"/>

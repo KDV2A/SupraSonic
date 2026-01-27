@@ -12,6 +12,16 @@ namespace SupraSonicWin
         public SetupWindow()
         {
             this.InitializeComponent();
+            LocalizeUI();
+        }
+
+        private void LocalizeUI()
+        {
+            Title = L10n.AppName + " Setup";
+            WelcomeText.Text = L10n.WelcomeTitle;
+            DescriptionText.Text = L10n.SetupDescription;
+            StartButton.Content = L10n.StartSetup;
+            StatusLabel.Text = "Status";
         }
 
         private async void OnStartClick(object sender, RoutedEventArgs e)
@@ -20,26 +30,41 @@ namespace SupraSonicWin
             
             try
             {
-                // 1. Microphone check (Standard Windows prompt handled by OS/SDK)
-                StatusLabel.Text = "Checking microphone...";
-                SetupProgressBar.Value = 20;
-                await Task.Delay(1000);
+                // 1. Microphone check
+                StatusLabel.Text = L10n.CheckingMic;
+                SetupProgressBar.Value = 10;
+                
+                var capability = Windows.Security.Authorization.AppCapability.Create("microphone");
+                var accessStatus = await capability.RequestAccessAsync();
 
-                // 2. Download Model
-                StatusLabel.Text = "Downloading Parakeet TDT v3 model (600MB)...";
-                // Real implementation would use HttpClient with progress callback
-                for(int i = 20; i <= 80; i += 5)
+                if (accessStatus != Windows.Security.Authorization.AppCapabilityAccessStatus.Allowed)
+                {
+                    StatusLabel.Text = L10n.MicDenied;
+                    StartButton.Content = IsFrench ? "Ouvrir et Réessayer" : "Open Settings & Retry";
+                    StartButton.IsEnabled = true;
+                    return;
+                }
+                SetupProgressBar.Value = 20;
+
+                // 2. Typing/Keystroke check 
+                StatusLabel.Text = IsFrench ? "Configuration de la frappe..." : "Configuring keystroke simulation...";
+                await Task.Delay(500); 
+                SetupProgressBar.Value = 30;
+
+                // 3. Download Model
+                StatusLabel.Text = L10n.DownloadingModel;
+                for(int i = 30; i <= 80; i += 5)
                 {
                     SetupProgressBar.Value = i;
                     await Task.Delay(200);
                 }
 
-                // 3. Initialize Engine
-                StatusLabel.Text = "Optimizing for your GPU (DirectML)...";
+                // 4. Initialize Engine
+                StatusLabel.Text = L10n.OptimizingModel;
                 await m_transcription.InitializeAsync();
                 SetupProgressBar.Value = 100;
 
-                StatusLabel.Text = "Setup Complete!";
+                StatusLabel.Text = L10n.SetupComplete;
                 await Task.Delay(1000);
                 
                 // Signal completion (In a real app, notify App.xaml.cs)

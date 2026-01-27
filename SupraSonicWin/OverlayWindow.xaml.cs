@@ -15,6 +15,7 @@ namespace SupraSonicWin
         public OverlayWindow()
         {
             this.InitializeComponent();
+            StatusLabel.Text = L10n.Recording;
             
             // Customize window appearance (Borderless, Topmost)
             var presenter = (Microsoft.UI.Windowing.OverlappedPresenter)this.AppWindow.Presenter;
@@ -22,8 +23,14 @@ namespace SupraSonicWin
             presenter.IsResizable = false;
             presenter.SetBorderAndTitleBar(false, false);
             
-            // Set transparent background logic for WinUI 3 (simplified)
-            // Note: Full transparency in WinUI 3 usually requires mica/acrylic or Composition APIs
+            // Center at the top of the monitor
+            IntPtr hWnd = Microsoft.UI.Interop.WindowNative.GetWindowHandle(this);
+            Microsoft.UI.WindowId windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+            
+            var displayArea = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(windowId, Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
+            int centerX = (displayArea.WorkArea.Width - (int)appWindow.Size.Width) / 2;
+            appWindow.Move(new Windows.Graphics.PointInt32(centerX, 20));
 
             SetupWaveform();
         }
@@ -39,20 +46,27 @@ namespace SupraSonicWin
                     Fill = new SolidColorBrush(Color.FromArgb(255, 0, 229, 255)),
                     RadiusX = 2,
                     RadiusY = 2,
-                    VerticalAlignment = VerticalAlignment.Center
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(1, 0, 1, 0)
                 };
                 m_bars.Add(rect);
                 WaveformControl.Items.Add(rect);
             }
         }
 
+        private Random m_rand = new Random();
+
         public void UpdateLevel(float level)
         {
-            // Update bar heights based on level (simplified)
+            // Dynamic organic animation matching macOS feel
             for (int i = 0; i < BAR_COUNT; i++)
             {
-                float factor = (float)System.Math.Sin(i * 0.2 + level) * level;
-                m_bars[i].Height = 4 + (factor * 30);
+                // Smooth sine wave + noise based on audio level
+                float noise = (float)(m_rand.NextDouble() * 10 * level);
+                float sine = (float)Math.Sin(i * 0.3 + Environment.TickCount * 0.01) * 20 * level;
+                float height = 4 + Math.Abs(sine) + noise;
+                
+                m_bars[i].Height = Math.Clamp(height, 4, 45);
             }
         }
     }

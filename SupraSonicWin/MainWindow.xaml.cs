@@ -1,8 +1,11 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Diagnostics;
 using SupraSonicWin.Native;
 using SupraSonicWin.Helpers;
+using SupraSonicWin.Models;
+using SupraSonicWin.Pages;
 
 namespace SupraSonicWin
 {
@@ -19,13 +22,13 @@ namespace SupraSonicWin
         {
             this.InitializeComponent();
             
-            // Hide window when started if desired (startup behavior)
-            // this.AppWindow.Hide();
-
             this.Closed += (s, e) => {
                 m_hotkey.Cleanup();
                 m_tray.Dispose();
             };
+
+            NavView.SelectedItem = NavView.MenuItems[0];
+            ContentFrame.Navigate(typeof(SettingsPage));
 
             InitializeApp();
         }
@@ -34,27 +37,22 @@ namespace SupraSonicWin
         {
             try
             {
-                // Init Rust
                 m_rust.Initialize();
                 m_rust.OnAudioData += OnAudioCaptured;
                 m_rust.OnLevelChanged += OnLevelChanged;
 
-                // Init Transcription
                 await m_transcription.InitializeAsync();
 
-                // Setup Hotkeys
                 m_hotkey.Setup(this);
                 m_hotkey.OnHotkeyPressed += OnHotkeyPressed;
+                m_hotkey.OnHotkeyReleased += OnHotkeyReleased;
 
-                // Setup Tray
                 m_tray.Setup(this);
                 m_tray.OnShowSettingsRequested += () => {
                     this.Activate();
                     this.AppWindow.Show();
                 };
                 m_tray.OnExitRequested += () => Application.Current.Exit();
-
-                Debug.WriteLine("✅ SupraSonic: System Integration Complete");
             }
             catch (Exception ex)
             {
@@ -62,55 +60,84 @@ namespace SupraSonicWin
             }
         }
 
+        private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        {
+            if (args.SelectedItemContainer?.Tag?.ToString() == "history")
+                ContentFrame.Navigate(typeof(HistoryPage));
+            else
+                ContentFrame.Navigate(typeof(SettingsPage));
+        }
+
         private void OnHotkeyPressed()
         {
             DispatcherQueue.TryEnqueue(() => {
-                if (!m_isRecording)
+                if (SettingsManager.Shared.HotkeyMode == SettingsManager.HotkeyModeType.PushToTalk)
                 {
-                    m_isRecording = true;
-                    m_rust.StartRecording();
-                    m_overlay.Activate();
-                    Debug.WriteLine("🎙️ Recording started on Windows hotkey");
+                    if (!m_isRecording)
+                    {
+                        m_isRecording = true;
+                        m_rust.StartRecording();
+                        m_overlay.Activate();
+                    }
                 }
-                else
+                else // Toggle Mode
                 {
-                    m_isRecording = false;
-                    m_rust.StopRecording();
-                    m_overlay.Hide(); // Hide overlay window
-                    Debug.WriteLine("⏹️ Recording stopped on Windows hotkey");
+                    if (!m_isRecording)
+                    {
+                        m_isRecording = true;
+                        m_rust.StartRecording();
+                        m_overlay.Activate();
+                    }
+                    else
+                    {
+                        m_isRecording = false;
+                        m_rust.StopRecording();
+                        m_overlay.Hide();
+                    }
+                }
+            });
+        }
+
+        private void OnHotkeyReleased()
+        {
+            DispatcherQueue.TryEnqueue(() => {
+                if (SettingsManager.Shared.HotkeyMode == SettingsManager.HotkeyModeType.PushToTalk)
+                {
+                    if (m_isRecording)
+                    {
+                        m_isRecording = false;
+                        m_rust.StopRecording();
+                        m_overlay.Hide();
+                    }
                 }
             });
         }
 
         private void OnLevelChanged(float level)
         {
-            DispatcherQueue.TryEnqueue(() => {
-                m_overlay.UpdateLevel(level);
-            });
+            DispatcherQueue.TryEnqueue(() => m_overlay.UpdateLevel(level));
         }
 
         private async void OnAudioCaptured(float[] samples)
         {
             try
             {
-                Debug.WriteLine($"🧠 Transcribing {samples.Length} samples...");
                 string result = await m_transcription.TranscribeAsync(samples);
                 
                 if (!string.IsNullOrEmpty(result))
                 {
                     KeystrokeManager.Shared.InsertText(result);
-                    Debug.WriteLine($"📝 Transcribed: {result}");
+                    
+                    if (SettingsManager.Shared.HistoryEnabled)
+                    {
+                        await HistoryManager.Shared.AddEntryAsync(result);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"❌ Transcription error: {ex.Message}");
             }
-        }
-
-        private void OnExitClick(object sender, RoutedEventArgs e)
-        {
-            Application.Current.Exit();
         }
     }
 }
