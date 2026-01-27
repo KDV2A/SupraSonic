@@ -64,6 +64,11 @@ class SettingsManager {
         set { defaults.set(newValue, forKey: Constants.Keys.historyEnabled) }
     }
     
+    var llmEnabled: Bool {
+        get { defaults.bool(forKey: Constants.Keys.llmEnabled) }
+        set { defaults.set(newValue, forKey: Constants.Keys.llmEnabled) }
+    }
+    
     var transcriptionHistory: [TranscriptionEntry] {
         get {
             guard let data = defaults.data(forKey: Constants.Keys.transcriptionHistory),

@@ -62,5 +62,6 @@ struct Constants {
         static let historyEnabled = "historyEnabled"
         static let launchOnLogin = "launchOnLogin"
         static let transcriptionHistory = "transcriptionHistory"
+        static let llmEnabled = "llmEnabled"
     }
 }

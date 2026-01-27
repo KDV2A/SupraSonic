@@ -208,17 +208,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Setup global hotkeys
         self.setupHotKeys()
         
-        // Initialize LLM Engine
-        Task {
-            do {
-                try await LLMManager.shared.initialize()
-                print("✅ LLM Engine (LFM-2.5) Initialized")
-            } catch {
-                print("❌ LLM Engine Initialization Failed: \(error)")
+        // Initialize LLM Engine if enabled
+        if SettingsManager.shared.llmEnabled {
+            Task {
+                do {
+                    try await LLMManager.shared.initialize()
+                    print("✅ LLM Engine (LFM-2.5) Initialized")
+                } catch {
+                    print("❌ LLM Engine Initialization Failed: \(error)")
+                }
             }
         }
         
-        print("🎤 \(Constants.appName) ready! Hold Right Command to record, Right Option for LLM.")
+        let llmSuffix = SettingsManager.shared.llmEnabled ? ", Right Option for LLM." : "."
+        print("🎤 \(Constants.appName) ready! Hold Right Command to record\(llmSuffix)")
     }
     
     private func checkCompatibility() -> Bool {
@@ -522,6 +525,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
     
     private func handleLLMHotkey(event: NSEvent) {
+        guard SettingsManager.shared.llmEnabled else { return }
+        
         let keyCode = Constants.KeyCodes.optionRight
         let keyPressed = event.keyCode == keyCode && isModifierActive(event: event, keyCode: keyCode)
         let keyReleased = event.keyCode == keyCode && !isModifierActive(event: event, keyCode: keyCode)

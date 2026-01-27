@@ -12,6 +12,8 @@ class SetupWindow: NSWindow {
     private var troubleshootButton: NSButton!
     private var tipLabel: NSTextField!
     
+    private var llmContinuation: CheckedContinuation<Bool, Never>?
+    
     private let brandBlue = Constants.brandBlue
     private let totalModelSizeMB = Constants.modelSizeMB
     
@@ -191,6 +193,10 @@ class SetupWindow: NSWindow {
                 return
             }
             
+            // 3.5 Ask for LLM Activation
+            let useLLM = await askForLLM()
+            SettingsManager.shared.llmEnabled = useLLM
+            
             // 4. Download Model
             self.level = .floating // Stay on top during download
             updateStatus(l.setupDownloadParakeet, progress: 40)
@@ -245,6 +251,63 @@ class SetupWindow: NSWindow {
                 progressTimer.invalidate()
                 showError("\(l.setupError): \(error.localizedDescription)")
             }
+            
+            // 5. Download LLM if enabled
+            if SettingsManager.shared.llmEnabled {
+                updateStatus(l.setupDownloadParakeet, progress: 90) // Reuse string or add new one
+                statusLabel.stringValue = "Initializing LLM Engine..."
+                do {
+                    try await LLMManager.shared.initialize()
+                } catch {
+                    print("⚠️ LLM Download failed, but continuing: \(error)")
+                }
+            }
+            
+            finishSuccess()
+        }
+    }
+    
+    private func askForLLM() async -> Bool {
+        let l = L10n.current
+        return await withCheckedContinuation { continuation in
+            self.llmContinuation = continuation
+            
+            DispatchQueue.main.async {
+                self.statusLabel.stringValue = l.setupLLMTitle
+                self.tipLabel.stringValue = l.setupLLMDesc
+                self.tipLabel.isHidden = false
+                
+                self.actionButton.title = l.setupLLMEnable
+                self.actionButton.action = #selector(self.confirmLLM)
+                self.actionButton.isEnabled = true
+                
+                self.troubleshootButton.title = l.setupLLMSkip
+                self.troubleshootButton.action = #selector(self.skipLLM)
+                self.troubleshootButton.isHidden = false
+                self.troubleshootButton.bezelStyle = .rounded
+            }
+        }
+    }
+    
+    @objc private func confirmLLM() {
+        llmContinuation?.resume(returning: true)
+        llmContinuation = nil
+        prepareForDownload()
+    }
+    
+    @objc private func skipLLM() {
+        llmContinuation?.resume(returning: false)
+        llmContinuation = nil
+        prepareForDownload()
+    }
+    
+    private func prepareForDownload() {
+        DispatchQueue.main.async {
+            self.actionButton.isEnabled = false
+            self.actionButton.action = #selector(self.startSetup)
+            self.troubleshootButton.isHidden = true
+            self.troubleshootButton.bezelStyle = .recessed
+            self.tipLabel.isHidden = true
         }
     }
     

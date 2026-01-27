@@ -106,6 +106,10 @@ struct L10n: Equatable {
     let setupMagicKeyTip: String
     let setupError: String
     let setupInstallationComplete: String
+    let setupLLMTitle: String
+    let setupLLMDesc: String
+    let setupLLMEnable: String
+    let setupLLMSkip: String
     let setupTrashInstallerPrompt: String
     let yes: String
     let no: String
@@ -189,6 +193,10 @@ struct L10n: Equatable {
         setupMagicKeyTip: "The magic key Command Right triggers the recording.",
         setupError: "Error",
         setupInstallationComplete: "Installation Complete",
+        setupLLMTitle: "Enable AI Reasoning?",
+        setupLLMDesc: "Enhance your voice notes with an on-device AI (LiquidAI). This will download an additional 800MB model.",
+        setupLLMEnable: "Enable AI Enhanced Mode",
+        setupLLMSkip: "Standard Mode only",
         setupTrashInstallerPrompt: "Would you like to move the installer to the Trash?",
         yes: "Yes",
         no: "No",
@@ -273,6 +281,10 @@ struct L10n: Equatable {
         setupMagicKeyTip: "La touche magique Command Droite déclenche l'enregistrement.",
         setupError: "Erreur",
         setupInstallationComplete: "Installation terminée",
+        setupLLMTitle: "Activer l'IA de Réflexion ?",
+        setupLLMDesc: "Améliorez vos notes vocales avec une IA locale (LiquidAI). Cela téléchargera un modèle supplémentaire de 800 Mo.",
+        setupLLMEnable: "Activer le mode enrichi par l'IA",
+        setupLLMSkip: "Mode Standard uniquement",
         setupTrashInstallerPrompt: "Voulez-vous placer l'installeur dans la corbeille ?",
         yes: "Oui",
         no: "Non",
