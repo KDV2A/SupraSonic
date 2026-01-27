@@ -59,6 +59,22 @@ if [ -d "$BUNDLE_RESOURCES" ]; then
     cp -r "$BUNDLE_RESOURCES" "$RESOURCES_DIR/"
 fi
 
+# 5.5 Copy MLX Metal shaders (since swift build can't compile them)
+MLX_METALLIB="/Users/kent/Library/Python/3.9/lib/python/site-packages/mlx/lib/mlx.metallib"
+if [ -f "$MLX_METALLIB" ]; then
+    echo "💎 Copying MLX Metal shaders..."
+    cp "$MLX_METALLIB" "$RESOURCES_DIR/mlx.metallib"
+else
+    # Try to find it dynamically if the path above fails
+    DYNAMIC_METALLIB=$(find /Users/kent/Library/Python -name "mlx.metallib" -type f | head -n 1)
+    if [ -n "$DYNAMIC_METALLIB" ]; then
+        echo "💎 Copying MLX Metal shaders (found dynamically)..."
+        cp "$DYNAMIC_METALLIB" "$RESOURCES_DIR/mlx.metallib"
+    else
+        echo "⚠️ Warning: MLX Metal shaders not found. GPU may not work."
+    fi
+fi
+
 # 6. Copy Rust dylib
 echo "🦀 Copying Rust core library..."
 cp "$SCRIPT_DIR/SupraSonicApp/Libs/libsuprasonic_core.dylib" "$MACOS_DIR/"

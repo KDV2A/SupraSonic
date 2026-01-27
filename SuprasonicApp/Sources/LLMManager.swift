@@ -12,25 +12,10 @@ class LLMManager: ObservableObject {
     @Published var progress: Double = 0
     
     private var modelContainer: ModelContainer?
-    private var isCompatible: Bool?
-    
     private init() {}
-    
-    func checkCompatibility() -> Bool {
-        if let isCompatible = isCompatible { return isCompatible }
-        
-        // Since we can't easily catch C++ exceptions in Swift do-catch, 
-        // we'll attempt initialization and catch it there.
-        // For now we assume compatible until it fails.
-        return true
-    }
     
     func initialize() async throws {
         guard !isReady && !isLoading else { return }
-        
-        if !checkCompatibility() {
-            throw LLMError.incompatibleDevice
-        }
         
         isLoading = true
         progress = 0
@@ -79,12 +64,10 @@ class LLMManager: ObservableObject {
 
 enum LLMError: LocalizedError {
     case notInitialized
-    case incompatibleDevice
     
     var errorDescription: String? {
         switch self {
         case .notInitialized: return "LLM Engine not initialized"
-        case .incompatibleDevice: return "MLX Metal library not found. Please install Xcode to build shaders."
         }
     }
 }

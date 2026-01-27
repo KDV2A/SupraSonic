@@ -255,22 +255,11 @@ class SetupWindow: NSWindow {
             // 5. Download LLM if enabled
             if SettingsManager.shared.llmEnabled {
                 updateStatus(l.setupDownloadParakeet, progress: 90)
-                statusLabel.stringValue = "Initializing LLM Engine..."
+                statusLabel.stringValue = "Initializing AI Reasoning Engine..."
                 do {
                     try await LLMManager.shared.initialize()
                 } catch {
                     print("⚠️ LLM Initialization failed: \(error)")
-                    // Don't block the whole setup, but inform the user
-                    DispatchQueue.main.async {
-                        let alert = NSAlert()
-                        alert.messageText = "LLM Initialization Warning"
-                        alert.informativeText = "The AI Reasoning mode could not be initialized (Missing Metal Shaders). Standard mode will still work. Installing Xcode may resolve this.\n\nError: \(error.localizedDescription)"
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "Continue")
-                        alert.runModal()
-                        
-                        SettingsManager.shared.llmEnabled = false
-                    }
                 }
             }
             

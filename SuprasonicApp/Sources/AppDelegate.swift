@@ -30,6 +30,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var setupWindow: SetupWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 0. Setup MLX Metal library path (for standalone distribution)
+        if let resourcePath = Bundle.main.resourcePath {
+            setenv("METAL_LIBRARY_PATH", resourcePath, 1)
+            print("💎 Metal Library Path set to: \(resourcePath)")
+        }
+
         // 1. Check if running from DMG (Anti-Translocation)
         let bundlePath = Bundle.main.bundleURL.path
         if bundlePath.contains("/Volumes/") && !bundlePath.contains("/Users/") {
