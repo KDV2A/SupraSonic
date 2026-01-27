@@ -19,6 +19,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var localKeyMonitor: Any?
     private var toggleKeyDown = false
     
+    // LLM Mode State
+    private var isLLMMode = false
+    private var llmOptionDown = false
+    
     private var lastUIUpdate: CFTimeInterval = 0
     // Tracking for consecutive transcriptions
     private var lastTranscriptionTime: Date? = nil
@@ -204,7 +208,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Setup global hotkeys
         self.setupHotKeys()
         
-        print("🎤 \(Constants.appName) ready! Hold Right Command to record.")
+        // Initialize LLM Engine
+        Task {
+            do {
+                try await LLMManager.shared.initialize()
+                print("✅ LLM Engine (LFM-2.5) Initialized")
+            } catch {
+                print("❌ LLM Engine Initialization Failed: \(error)")
+            }
+        }
+        
+        print("🎤 \(Constants.appName) ready! Hold Right Command to record, Right Option for LLM.")
     }
     
     private func checkCompatibility() -> Bool {
@@ -441,10 +455,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Monitor for Main Hotkey
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handleMainHotkey(event: event, keyCode: mainKeyCode, isModifier: isMainModifier)
+            self?.handleLLMHotkey(event: event)
         }
         
         localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handleMainHotkey(event: event, keyCode: mainKeyCode, isModifier: isMainModifier)
+            self?.handleLLMHotkey(event: event)
             return event
         }
         
@@ -502,6 +518,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     }
                 }
             }
+        }
+    }
+    
+    private func handleLLMHotkey(event: NSEvent) {
+        let keyCode = Constants.KeyCodes.optionRight
+        let keyPressed = event.keyCode == keyCode && isModifierActive(event: event, keyCode: keyCode)
+        let keyReleased = event.keyCode == keyCode && !isModifierActive(event: event, keyCode: keyCode)
+        
+        if keyPressed && !llmOptionDown {
+            llmOptionDown = true
+            isLLMMode = true
+            startRecording()
+        } else if keyReleased && llmOptionDown {
+            llmOptionDown = false
+            stopRecording()
+            // isLLMMode will be reset in handleAudioBuffer after processing
         }
     }
     
@@ -635,9 +667,23 @@ extension AppDelegate: RustAudioDelegate {
                 
                 print("📝 Parakeet Result: \(text)")
                 if !text.isEmpty {
+                    var finalOutput = text
+                    
+                    if self.isLLMMode {
+                        print("🤖 App: Routing to LLM for processing...")
+                        do {
+                            finalOutput = try await LLMManager.shared.generateResponse(prompt: text)
+                            print("✨ LLM Result: \(finalOutput)")
+                        } catch {
+                            print("❌ LLM processing failed: \(error)")
+                            // Fallback to original text if LLM fails
+                        }
+                        self.isLLMMode = false
+                    }
+                    
                     DispatchQueue.main.async { [weak self] in
-                        SettingsManager.shared.addToHistory(text)
-                        self?.handleTranscriptionResult(text)
+                        SettingsManager.shared.addToHistory(finalOutput)
+                        self?.handleTranscriptionResult(finalOutput)
                     }
                 }
             } catch {

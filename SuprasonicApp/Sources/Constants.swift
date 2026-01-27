@@ -12,6 +12,11 @@ struct Constants {
     static let targetModelVersion = "v3" // Current Parakeet version
     static let targetModelName = "parakeet-tdt-0.6b-v3-coreml"
     
+    // MARK: - LLM
+    static let llmModelName = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit"
+    static let llmMaxTokens = 512
+    static let llmTemperature: Float = 0.7
+    
     // MARK: - UI
     static let uiUpdateFPS: Double = 30.0
     static let uiUpdateInterval: TimeInterval = 1.0 / uiUpdateFPS

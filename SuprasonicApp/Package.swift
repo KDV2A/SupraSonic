@@ -11,6 +11,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.10.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift.git", from: "0.1.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", branch: "main"),
     ],
     targets: [
         .target(
@@ -28,6 +30,8 @@ let package = Package(
             name: "SupraSonicApp",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 "SupraSonicCore"
             ],
             path: "Sources",
