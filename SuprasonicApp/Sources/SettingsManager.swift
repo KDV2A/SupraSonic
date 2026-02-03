@@ -11,14 +11,32 @@ class SettingsManager {
         case toggle = 1
     }
     
+    enum LLMProvider: String, Codable, CaseIterable {
+        case none = "none"
+        case local = "local"
+        case google = "google"
+        case openai = "openai"
+        case anthropic = "anthropic"
+        
+        var displayName: String {
+            switch self {
+            case .none: return L10n.isFrench ? "Aucun" : "None"
+            case .local: return "SupraSonic Local (Ministral-3B)"
+            case .google: return "Google (Gemini)"
+            case .openai: return "OpenAI (GPT-4o)"
+            case .anthropic: return "Anthropic (Claude)"
+            }
+        }
+    }
+    
     // MARK: - Main Hotkey (default: Right Command)
     
     var hotkeyMode: HotkeyMode {
         get {
             let value = defaults.integer(forKey: Constants.Keys.hotkeyMode)
-            // Default to .toggle (1) instead of .pushToTalk (0)
-            if defaults.object(forKey: Constants.Keys.hotkeyMode) == nil { return .toggle }
-            return HotkeyMode(rawValue: value) ?? .toggle
+            // Default to .pushToTalk (0)
+            if defaults.object(forKey: Constants.Keys.hotkeyMode) == nil { return .pushToTalk }
+            return HotkeyMode(rawValue: value) ?? .pushToTalk
         }
         set { defaults.set(newValue.rawValue, forKey: Constants.Keys.hotkeyMode) }
     }
@@ -64,9 +82,72 @@ class SettingsManager {
         set { defaults.set(newValue, forKey: Constants.Keys.historyEnabled) }
     }
     
+    var aiSkills: [AISkill] {
+        get {
+            if let data = defaults.data(forKey: Constants.Keys.aiSkills),
+               let skills = try? JSONDecoder().decode([AISkill].self, from: data) {
+                return skills
+            }
+            // Default skills if none exist
+            let defaults = [
+                AISkill(name: L10n.isFrench ? "Traduction" : "Translation",
+                        trigger: L10n.isFrench ? "traduction" : "translation",
+                        prompt: Constants.defaultAISkillPrompt,
+                        color: "blue")
+            ]
+            return defaults
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: Constants.Keys.aiSkills)
+            }
+        }
+    }
+    
+    // Legacy support (will be removed in future)
+    var aiAssistantPrompt: String {
+        get { aiSkills.first?.prompt ?? Constants.defaultAISkillPrompt }
+    }
+    
     var llmEnabled: Bool {
-        get { defaults.bool(forKey: Constants.Keys.llmEnabled) }
-        set { defaults.set(newValue, forKey: Constants.Keys.llmEnabled) }
+        get { llmProvider != .none }
+        set { 
+            if newValue {
+                if llmProvider == .none {
+                    llmProvider = .local // Default to local if enabling
+                }
+            } else {
+                llmProvider = .none
+            }
+        }
+    }
+    
+    var llmProvider: LLMProvider {
+        get {
+            let value = defaults.string(forKey: Constants.Keys.llmProvider) ?? LLMProvider.none.rawValue
+            return LLMProvider(rawValue: value) ?? .none
+        }
+        set { defaults.set(newValue.rawValue, forKey: Constants.Keys.llmProvider) }
+    }
+    
+    var geminiApiKey: String {
+        get { defaults.string(forKey: Constants.Keys.geminiApiKey) ?? "" }
+        set { defaults.set(newValue, forKey: Constants.Keys.geminiApiKey) }
+    }
+    
+    var openaiApiKey: String {
+        get { defaults.string(forKey: Constants.Keys.openaiApiKey) ?? "" }
+        set { defaults.set(newValue, forKey: Constants.Keys.openaiApiKey) }
+    }
+    
+    var anthropicApiKey: String {
+        get { defaults.string(forKey: Constants.Keys.anthropicApiKey) ?? "" }
+        set { defaults.set(newValue, forKey: Constants.Keys.anthropicApiKey) }
+    }
+    
+    var vocabularyMapping: [String: String] {
+        get { defaults.dictionary(forKey: Constants.Keys.vocabularyMapping) as? [String: String] ?? [:] }
+        set { defaults.set(newValue, forKey: Constants.Keys.vocabularyMapping) }
     }
     
     var transcriptionHistory: [TranscriptionEntry] {
@@ -82,6 +163,11 @@ class SettingsManager {
                 defaults.set(data, forKey: Constants.Keys.transcriptionHistory)
             }
         }
+    }
+    
+    var muteSystemSoundDuringRecording: Bool {
+        get { defaults.bool(forKey: Constants.Keys.muteSystemSound) }
+        set { defaults.set(newValue, forKey: Constants.Keys.muteSystemSound) }
     }
     
     func addToHistory(_ text: String) {
@@ -149,5 +235,26 @@ struct TranscriptionEntry: Codable, Identifiable {
         self.id = UUID()
         self.text = text
         self.date = date
+    }
+}
+
+struct AISkill: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var trigger: String
+    var prompt: String
+    var color: String
+    var isExpanded: Bool = false
+    
+    init(name: String, trigger: String, prompt: String, color: String = "blue") {
+        self.id = UUID()
+        self.name = name
+        self.trigger = trigger
+        self.prompt = prompt
+        self.color = color
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, trigger, prompt, color
     }
 }

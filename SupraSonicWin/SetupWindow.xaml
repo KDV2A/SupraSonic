@@ -12,6 +12,16 @@
             
             <ProgressBar x:Name="SetupProgressBar" Minimum="0" Maximum="100" Value="0" Width="300" Height="20"/>
             <TextBlock x:Name="StatusLabel" Text="Ready to start..." HorizontalAlignment="Center"/>
+
+            <StackPanel x:Name="AIChoicePanel" Visibility="Collapsed" Spacing="10">
+                <TextBlock x:Name="AITitle" Text="Enable AI Refinement?" HorizontalAlignment="Center" FontWeight="SemiBold"/>
+                <TextBlock x:Name="AIDesc" Text="Use AI to fix grammar and spelling automatically. This requires an internet connection (Gemini/ChatGPT/Claude)." 
+                           FontSize="12" Foreground="Gray" TextWrapping="Wrap" MaxWidth="350" TextAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <Button x:Name="EnableAIButton" Content="Enable AI" Click="OnEnableAIClick" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button x:Name="SkipAIButton" Content="Skip" Click="OnSkipAIClick"/>
+                </StackPanel>
+            </StackPanel>
             
             <Button x:Name="StartButton" Content="Start Setup" Click="OnStartClick" HorizontalAlignment="Center" Padding="20,10"/>
         </StackPanel>

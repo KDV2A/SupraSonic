@@ -38,6 +38,9 @@ namespace SupraSonicWin.Helpers
         public event Action OnHotkeyPressed;
         public event Action OnHotkeyReleased;
 
+        public event Action OnAIHotkeyPressed;
+        public event Action OnAIHotkeyReleased;
+
         public void Setup(Window window)
         {
             m_proc = HookCallback;
@@ -67,6 +70,7 @@ namespace SupraSonicWin.Helpers
             {
                 int vkCode = Marshal.ReadInt32(lParam);
                 int targetVK = Models.SettingsManager.Shared.SelectedHotkeyVK;
+                int aiTargetVK = Models.SettingsManager.Shared.SelectedAIHotkeyVK;
 
                 if (vkCode == targetVK)
                 {
@@ -74,6 +78,15 @@ namespace SupraSonicWin.Helpers
                         OnHotkeyPressed?.Invoke();
                     else if (wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP)
                         OnHotkeyReleased?.Invoke();
+                    
+                    return (IntPtr)1; // Consume key
+                }
+                else if (vkCode == aiTargetVK)
+                {
+                    if (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN)
+                        OnAIHotkeyPressed?.Invoke();
+                    else if (wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP)
+                        OnAIHotkeyReleased?.Invoke();
                     
                     return (IntPtr)1; // Consume key
                 }

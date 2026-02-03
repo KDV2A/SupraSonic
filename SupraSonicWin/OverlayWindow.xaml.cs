@@ -56,6 +56,11 @@ namespace SupraSonicWin
 
         private Random m_rand = new Random();
 
+        public void SetAIMode(bool enabled)
+        {
+            StatusLabel.Text = enabled ? (L10n.IsFrench ? "Assistant IA" : "AI Assistant") : L10n.Recording;
+        }
+
         public void UpdateLevel(float level)
         {
             // Dynamic organic animation matching macOS feel

@@ -16,6 +16,8 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.756" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.1.2" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.17.1" />
+    <PackageReference Include="LLamaSharp" Version="0.12.0" />
+    <PackageReference Include="LLamaSharp.Backend.DirectML" Version="0.12.0" />
   </ItemGroup>
 
   <ItemGroup>

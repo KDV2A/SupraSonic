@@ -19,9 +19,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var localKeyMonitor: Any?
     private var toggleKeyDown = false
     
-    // LLM Mode State
+    // AI Skills State
     private var isLLMMode = false
-    private var llmOptionDown = false
     
     private var lastUIUpdate: CFTimeInterval = 0
     // Tracking for consecutive transcriptions
@@ -33,7 +32,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // 0. Setup MLX Metal library path (for standalone distribution)
         if let resourcePath = Bundle.main.resourcePath {
             setenv("METAL_LIBRARY_PATH", resourcePath, 1)
-            print("💎 Metal Library Path set to: \(resourcePath)")
         }
 
         // 1. Check if running from DMG (Anti-Translocation)
@@ -60,6 +58,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // 2. Create windows
         overlayWindow = OverlayWindow()
         settingsWindow = SettingsWindow()
+        
+        // Setup minimal main menu for shortcuts (Copy/Paste)
+        setupMainMenu()
         
         // Listen for hotkey settings changes
         NotificationCenter.default.addObserver(self, selector: #selector(hotkeySettingsChanged), name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
@@ -103,9 +104,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         print("🚀 Onboarding debug: hasMic=\(hasMic), hasAccessibility=\(hasAccessibility), hasModel=\(hasModel), isInApplications=\(isInApplications)")
         
-        // 3. If everything is OK, don't show setup
-        if hasMic && hasAccessibility && hasModel && (isInApplications || !Bundle.main.bundleURL.path.contains(".dmg")) {
-            print("🚀 App: All requirements met. Skipping setup.")
+        // 3. If everything is OK, check if new mandatory setup steps (like LLM) are missing
+        let llmChoiceMade = UserDefaults.standard.object(forKey: Constants.Keys.llmProvider) != nil
+        
+        if hasMic && hasAccessibility && hasModel && (isInApplications || !Bundle.main.bundleURL.path.contains(".dmg")) && llmChoiceMade {
+            print("🚀 App: All requirements met and LLM choice made. Skipping setup.")
             return false
         }
         
@@ -188,6 +191,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 // Final re-activation of the status item app
                 NSApp.activate(ignoringOtherApps: true)
                 print("✨ App: Seamless launch complete")
+                
+                // Request: Open Settings (General) automatically
+                self.openSettings()
             }
         }
     }
@@ -215,18 +221,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         self.setupHotKeys()
         
         // Initialize LLM Engine if enabled
-        if SettingsManager.shared.llmEnabled {
-            Task {
-                do {
-                    try await LLMManager.shared.initialize()
-                    print("✅ LLM Engine (LFM-2.5) Initialized")
-                } catch {
-                    print("❌ LLM Engine Initialization Failed: \(error)")
-                }
-            }
-        }
-        
-        let llmSuffix = SettingsManager.shared.llmEnabled ? ", Right Option for LLM." : "."
+        let llmSuffix = SettingsManager.shared.llmProvider != .none ? ", Voice Triggers for AI Skills." : "."
         print("🎤 \(Constants.appName) ready! Hold Right Command to record\(llmSuffix)")
     }
     
@@ -394,7 +389,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: Constants.appName, action: nil, keyEquivalent: ""))
+        
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let versionItem = NSMenuItem(title: "\(Constants.appName) v\(version)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
         menu.addItem(NSMenuItem.separator())
         
         // Microphone submenu
@@ -464,12 +463,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Monitor for Main Hotkey
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handleMainHotkey(event: event, keyCode: mainKeyCode, isModifier: isMainModifier)
-            self?.handleLLMHotkey(event: event)
         }
         
         localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             self?.handleMainHotkey(event: event, keyCode: mainKeyCode, isModifier: isMainModifier)
-            self?.handleLLMHotkey(event: event)
             return event
         }
         
@@ -498,9 +495,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             
             if mode == .pushToTalk {
                 if keyPressed && !pushToTalkDown {
+                    print("⌨️ Hotkey: PTT Down")
                     pushToTalkDown = true
                     startRecording()
                 } else if keyReleased && pushToTalkDown {
+                    print("⌨️ Hotkey: PTT Up")
                     pushToTalkDown = false
                     stopRecording()
                 }
@@ -530,24 +529,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
-    private func handleLLMHotkey(event: NSEvent) {
-        guard SettingsManager.shared.llmEnabled else { return }
-        
-        let keyCode = Constants.KeyCodes.optionRight
-        let keyPressed = event.keyCode == keyCode && isModifierActive(event: event, keyCode: keyCode)
-        let keyReleased = event.keyCode == keyCode && !isModifierActive(event: event, keyCode: keyCode)
-        
-        if keyPressed && !llmOptionDown {
-            llmOptionDown = true
-            isLLMMode = true
-            startRecording()
-        } else if keyReleased && llmOptionDown {
-            llmOptionDown = false
-            stopRecording()
-            // isLLMMode will be reset in handleAudioBuffer after processing
-        }
-    }
-    
     private func toggleRecording() {
         if isRecording {
             stopRecording()
@@ -574,12 +555,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
-    @objc private func handleWake() {
-        print("☀️ System: Wake detected.")
-        // restartAudioEngine() // Legacy disabled
+    @objc @MainActor private func handleWake() {
+        print("☀️ System: Wake detected. Triggering pre-warm...")
+        TranscriptionManager.shared.preWarm()
     }
     
-    @objc private func handleAudioConfigChange() {
+    @objc @MainActor private func handleAudioConfigChange() {
         print("🔄 Audio: Configuration change detected.")
         // restartAudioEngine() // Legacy disabled
     }
@@ -608,6 +589,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         isRecording = true
         
+        // Mute system sound if enabled
+        if SettingsManager.shared.muteSystemSoundDuringRecording {
+            runAppleScript("set volume with output muted")
+        }
+        
         DispatchQueue.main.async {
             self.overlayWindow?.show()
         }
@@ -629,6 +615,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
         
         isRecording = false
+        
+        // Unmute system sound if enabled
+        if SettingsManager.shared.muteSystemSoundDuringRecording {
+            runAppleScript("set volume without output muted")
+        }
         
         DispatchQueue.main.async {
             self.overlayWindow?.hide()
@@ -678,19 +669,53 @@ extension AppDelegate: RustAudioDelegate {
                 
                 print("📝 Parakeet Result: \(text)")
                 if !text.isEmpty {
-                    var finalOutput = text
+                    let finalOutput = text
                     
-                    if self.isLLMMode {
-                        print("🤖 App: Routing to LLM for processing...")
+                    /*
+                    // Multiple AI Skills Detection: Hiding for Standby Mode
+                    let skills = SettingsManager.shared.aiSkills
+                    let transcribedLower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                    var activePrompt = SettingsManager.shared.aiAssistantPrompt // Fallback
+                    
+                    for skill in skills {
+                        let trigger = skill.trigger.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trigger.isEmpty { continue }
+                        
+                        // Check if the transcription starts with the trigger (Modern UX requirement)
+                        if transcribedLower.hasPrefix(trigger) {
+                            print("🎯 Voice Skill Detected: \(skill.name)")
+                            shouldProcessWithAI = true
+                            activePrompt = skill.prompt
+                            
+                            // Remove the trigger word/phrase from the final output
+                            if let range = text.range(of: trigger, options: [.caseInsensitive, .anchored]) {
+                                finalOutput = text.replacingCharacters(in: range, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                                
+                                // Clean up leading punctuation/spaces if any (e.g. "Traduction, Bonjour" -> "Bonjour")
+                                while finalOutput.hasPrefix(",") || finalOutput.hasPrefix(":") || finalOutput.hasPrefix(" ") {
+                                    finalOutput.removeFirst()
+                                    finalOutput = finalOutput.trimmingCharacters(in: .whitespaces)
+                                }
+                            }
+                            break // Use first matching skill
+                        }
+                    }
+                    
+                    if shouldProcessWithAI {
+                        print("🤖 App: Routing to AI Skill for processing...")
                         do {
-                            finalOutput = try await LLMManager.shared.generateResponse(prompt: text)
+                            if await !LLMManager.shared.isReady {
+                                try await LLMManager.shared.initialize()
+                            }
+                            
+                            finalOutput = try await LLMManager.shared.generateResponse(instruction: activePrompt, text: finalOutput)
                             print("✨ LLM Result: \(finalOutput)")
                         } catch {
                             print("❌ LLM processing failed: \(error)")
-                            // Fallback to original text if LLM fails
                         }
                         self.isLLMMode = false
                     }
+                    */
                     
                     DispatchQueue.main.async { [weak self] in
                         SettingsManager.shared.addToHistory(finalOutput)
@@ -707,6 +732,45 @@ extension AppDelegate: RustAudioDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.overlayWindow?.updateLevel(level)
         }
+    }
+    
+    private func runAppleScript(_ source: String) {
+        if let script = NSAppleScript(source: source) {
+            var error: NSDictionary?
+            script.executeAndReturnError(&error)
+        }
+    }
+    
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+        
+        // App Menu
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+        appMenu.addItem(withTitle: "About \(Constants.appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Hide \(Constants.appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "H")
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit \(Constants.appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        
+        // Edit Menu (CRITICAL for Copy/Paste)
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenuItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Undo", action: #selector(UndoManager.undo), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: #selector(UndoManager.redo), keyEquivalent: "Z")
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        
+        NSApp.mainMenu = mainMenu
     }
 }
 

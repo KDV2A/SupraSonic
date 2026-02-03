@@ -12,7 +12,6 @@ class SetupWindow: NSWindow {
     private var troubleshootButton: NSButton!
     private var tipLabel: NSTextField!
     
-    private var llmContinuation: CheckedContinuation<Bool, Never>?
     
     private let brandBlue = Constants.brandBlue
     private let totalModelSizeMB = Constants.modelSizeMB
@@ -39,6 +38,13 @@ class SetupWindow: NSWindow {
         self.makeKeyAndOrderFront(nil)
     }
     
+    private var aiChoiceContainer: NSStackView!
+    private var aiTitleLabel: NSTextField!
+    private var aiDescLabel: NSTextField!
+    private var enableAIButton: NSButton!
+    private var skipAIButton: NSButton!
+    private var aiContinuation: CheckedContinuation<Bool, Never>?
+    
     private func setupUI() {
         let visualEffect = NSVisualEffectView()
         visualEffect.blendingMode = .behindWindow
@@ -58,14 +64,7 @@ class SetupWindow: NSWindow {
         // Logo
         logoView = NSImageView()
         logoView.translatesAutoresizingMaskIntoConstraints = false
-        if let logo = NSImage(named: "icon_512x512@2x.png") {
-            logoView.image = logo
-        } else if let fallbackLogo = NSImage(named: "AppIcon.icns") {
-             logoView.image = fallbackLogo
-        } else {
-            logoView.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: nil)
-            logoView.contentTintColor = brandBlue
-        }
+        logoView.image = NSApp.applicationIconImage
         logoView.imageScaling = .scaleProportionallyUpOrDown
         
         // Title
@@ -117,6 +116,36 @@ class SetupWindow: NSWindow {
         progressStack.addArrangedSubview(progressLabel)
         progressStack.addArrangedSubview(tipLabel)
         
+        // AI Choice Container
+        aiChoiceContainer = NSStackView()
+        aiChoiceContainer.orientation = .vertical
+        aiChoiceContainer.spacing = 20
+        aiChoiceContainer.alignment = .centerX
+        aiChoiceContainer.isHidden = true
+        
+        aiTitleLabel = NSTextField(labelWithString: l.setupLLMTitle)
+        aiTitleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+        aiTitleLabel.textColor = .labelColor
+        
+        aiDescLabel = NSTextField(wrappingLabelWithString: l.setupLLMDesc)
+        aiDescLabel.font = NSFont.systemFont(ofSize: 13)
+        aiDescLabel.textColor = .secondaryLabelColor
+        aiDescLabel.alignment = .center
+        
+        enableAIButton = NSButton(title: l.setupLLMEnable, target: self, action: #selector(onEnableAIClick))
+        enableAIButton.bezelStyle = .rounded
+        enableAIButton.controlSize = .large
+        enableAIButton.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        
+        skipAIButton = NSButton(title: l.setupLLMSkip, target: self, action: #selector(onSkipAIClick))
+        skipAIButton.bezelStyle = .recessed
+        skipAIButton.controlSize = .small
+        
+        aiChoiceContainer.addArrangedSubview(aiTitleLabel)
+        aiChoiceContainer.addArrangedSubview(aiDescLabel)
+        aiChoiceContainer.addArrangedSubview(enableAIButton)
+        aiChoiceContainer.addArrangedSubview(skipAIButton)
+        
         // Button
         actionButton = NSButton(title: l.setupGetStarted, target: self, action: #selector(startSetup))
         actionButton.bezelStyle = .rounded
@@ -134,6 +163,7 @@ class SetupWindow: NSWindow {
         container.addArrangedSubview(titleLabel)
         container.addArrangedSubview(descLabel)
         container.addArrangedSubview(progressStack)
+        container.addArrangedSubview(aiChoiceContainer)
         container.addArrangedSubview(actionButton)
         container.addArrangedSubview(troubleshootButton)
         
@@ -195,11 +225,11 @@ class SetupWindow: NSWindow {
             
             // 3.5 Ask for LLM Activation
             let useLLM = await askForLLM()
-            SettingsManager.shared.llmEnabled = useLLM
+            SettingsManager.shared.llmProvider = useLLM ? .local : .none
             
             // 4. Download Model
             self.level = .floating // Stay on top during download
-            updateStatus(l.setupDownloadParakeet, progress: 40)
+            updateStatus(l.setupDownloadParakeet, progress: 45)
             DispatchQueue.main.async { self.progressLabel.isHidden = false }
             
             // Track progress based on actual status and progress from TranscriptionManager
@@ -235,13 +265,19 @@ class SetupWindow: NSWindow {
                 print("📥 Setup: Starting transcription engine initialization...")
                 try await TranscriptionManager.shared.initialize()
                 print("✅ Setup: Initialization successful")
+                
+                // If LLM enabled, initialize it too
+                if useLLM {
+                    updateStatus(L10n.current.localModelActive, progress: 95)
+                    try await LLMManager.shared.initialize()
+                }
+                
                 progressTimer.invalidate()
                 
                 // Animate to 100%
                 DispatchQueue.main.async {
                     self.progressBar.doubleValue = 100
                     self.progressLabel.stringValue = "100% (\(Int(self.totalModelSizeMB)) Mo / \(Int(self.totalModelSizeMB)) Mo)"
-                    // Final sleep to show 100%
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 
@@ -251,63 +287,39 @@ class SetupWindow: NSWindow {
                 progressTimer.invalidate()
                 showError("\(l.setupError): \(error.localizedDescription)")
             }
-            
-            // 5. Download LLM if enabled
-            if SettingsManager.shared.llmEnabled {
-                updateStatus(l.setupDownloadParakeet, progress: 90)
-                statusLabel.stringValue = "Initializing AI Reasoning Engine..."
-                do {
-                    try await LLMManager.shared.initialize()
-                } catch {
-                    print("⚠️ LLM Initialization failed: \(error)")
-                }
-            }
-            
-            finishSuccess()
         }
     }
     
     private func askForLLM() async -> Bool {
-        let l = L10n.current
         return await withCheckedContinuation { continuation in
-            self.llmContinuation = continuation
-            
             DispatchQueue.main.async {
-                self.statusLabel.stringValue = l.setupLLMTitle
-                self.tipLabel.stringValue = l.setupLLMDesc
-                self.tipLabel.isHidden = false
-                
-                self.actionButton.title = l.setupLLMEnable
-                self.actionButton.action = #selector(self.confirmLLM)
-                self.actionButton.isEnabled = true
-                
-                self.troubleshootButton.title = l.setupLLMSkip
-                self.troubleshootButton.action = #selector(self.skipLLM)
-                self.troubleshootButton.isHidden = false
-                self.troubleshootButton.bezelStyle = .rounded
+                self.aiContinuation = continuation
+                self.aiChoiceContainer.isHidden = false
+                self.progressBar.isHidden = true
+                self.statusLabel.isHidden = true
+                self.actionButton.isHidden = true
             }
         }
     }
     
-    @objc private func confirmLLM() {
-        llmContinuation?.resume(returning: true)
-        llmContinuation = nil
-        prepareForDownload()
+    @objc private func onEnableAIClick() {
+        print("🤖 AI Setup: Enabled")
+        completeAIChoice(true)
     }
     
-    @objc private func skipLLM() {
-        llmContinuation?.resume(returning: false)
-        llmContinuation = nil
-        prepareForDownload()
+    @objc private func onSkipAIClick() {
+        print("🤖 AI Setup: Skipped")
+        completeAIChoice(false)
     }
     
-    private func prepareForDownload() {
+    private func completeAIChoice(_ choice: Bool) {
         DispatchQueue.main.async {
-            self.actionButton.isEnabled = false
-            self.actionButton.action = #selector(self.startSetup)
-            self.troubleshootButton.isHidden = true
-            self.troubleshootButton.bezelStyle = .recessed
-            self.tipLabel.isHidden = true
+            self.aiChoiceContainer.isHidden = true
+            self.progressBar.isHidden = false
+            self.statusLabel.isHidden = false
+            self.actionButton.isHidden = false
+            self.aiContinuation?.resume(returning: choice)
+            self.aiContinuation = nil
         }
     }
     
@@ -356,7 +368,6 @@ class SetupWindow: NSWindow {
             Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
                 attempts += 1
                 
-                // Show troubleshoot button after 10 seconds of waiting
                 if attempts == 5 {
                     DispatchQueue.main.async {
                         self?.troubleshootButton.isHidden = false
@@ -424,4 +435,5 @@ class SetupWindow: NSWindow {
             self.actionButton.isEnabled = false
         }
     }
+
 }

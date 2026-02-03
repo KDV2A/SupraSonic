@@ -17,6 +17,7 @@ namespace SupraSonicWin
         private TrayManager m_tray = new TrayManager();
         private OverlayWindow m_overlay = new OverlayWindow();
         private bool m_isRecording = false;
+        private bool m_isAIMode = false;
 
         public MainWindow()
         {
@@ -46,6 +47,8 @@ namespace SupraSonicWin
                 m_hotkey.Setup(this);
                 m_hotkey.OnHotkeyPressed += OnHotkeyPressed;
                 m_hotkey.OnHotkeyReleased += OnHotkeyReleased;
+                m_hotkey.OnAIHotkeyPressed += OnAIHotkeyPressed;
+                m_hotkey.OnAIHotkeyReleased += OnAIHotkeyReleased;
 
                 m_tray.Setup(this);
                 m_tray.OnShowSettingsRequested += () => {
@@ -60,15 +63,30 @@ namespace SupraSonicWin
             }
         }
 
-        private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-        {
-            if (args.SelectedItemContainer?.Tag?.ToString() == "history")
-                ContentFrame.Navigate(typeof(HistoryPage));
-            else
                 ContentFrame.Navigate(typeof(SettingsPage));
         }
 
+        private void OnAIHotkeyPressed()
+        {
+            StartRecording(true);
+        }
+
+        private void OnAIHotkeyReleased()
+        {
+            StopRecording();
+        }
+
         private void OnHotkeyPressed()
+        {
+            StartRecording(false);
+        }
+
+        private void OnHotkeyReleased()
+        {
+            StopRecording();
+        }
+
+        private void StartRecording(bool isAI)
         {
             DispatcherQueue.TryEnqueue(() => {
                 if (SettingsManager.Shared.HotkeyMode == SettingsManager.HotkeyModeType.PushToTalk)
@@ -76,7 +94,13 @@ namespace SupraSonicWin
                     if (!m_isRecording)
                     {
                         m_isRecording = true;
+                        m_isAIMode = isAI;
+                        
+                        if (SettingsManager.Shared.MuteSystemSoundDuringRecording)
+                            VolumeHelper.SetMute(true);
+
                         m_rust.StartRecording();
+                        m_overlay.SetAIMode(isAI);
                         m_overlay.Activate();
                     }
                 }
@@ -85,30 +109,35 @@ namespace SupraSonicWin
                     if (!m_isRecording)
                     {
                         m_isRecording = true;
+                        m_isAIMode = isAI;
+                        
+                        if (SettingsManager.Shared.MuteSystemSoundDuringRecording)
+                            VolumeHelper.SetMute(true);
+
                         m_rust.StartRecording();
+                        m_overlay.SetAIMode(isAI);
                         m_overlay.Activate();
                     }
                     else
                     {
-                        m_isRecording = false;
-                        m_rust.StopRecording();
-                        m_overlay.Hide();
+                        StopRecording();
                     }
                 }
             });
         }
 
-        private void OnHotkeyReleased()
+        private void StopRecording()
         {
             DispatcherQueue.TryEnqueue(() => {
-                if (SettingsManager.Shared.HotkeyMode == SettingsManager.HotkeyModeType.PushToTalk)
+                if (m_isRecording)
                 {
-                    if (m_isRecording)
-                    {
-                        m_isRecording = false;
-                        m_rust.StopRecording();
-                        m_overlay.Hide();
-                    }
+                    m_isRecording = false;
+                    m_rust.StopRecording();
+                    
+                    if (SettingsManager.Shared.MuteSystemSoundDuringRecording)
+                        VolumeHelper.SetMute(false);
+
+                    m_overlay.Hide();
                 }
             });
         }
@@ -126,6 +155,12 @@ namespace SupraSonicWin
                 
                 if (!string.IsNullOrEmpty(result))
                 {
+                    if (m_isAIMode)
+                    {
+                        // Transform via LLM
+                        result = await LLMManager.Shared.GenerateResponse(result);
+                    }
+
                     KeystrokeManager.Shared.InsertText(result);
                     
                     if (SettingsManager.Shared.HistoryEnabled)

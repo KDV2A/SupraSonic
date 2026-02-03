@@ -13,8 +13,14 @@ struct L10n: Equatable {
     
     // Settings Window
     let settingsTitle: String
-    let configurationTab: String
+    let generalTab: String
     let historyTab: String
+    let aiAssistantTab: String
+    let muteDuringRecording: String
+    let muteDuringRecordingDesc: String
+    let llmProviderLabel: String
+    let apiKeyLabel: String
+    let localModelActive: String
     
     // Sections
     let shortcutsSection: String
@@ -50,6 +56,18 @@ struct L10n: Equatable {
     let copy: String
     let clearHistoryConfirm: String
     let clearHistoryMessage: String
+    
+    // Vocabulary
+    let vocabularyTab: String
+    let vocabularyDesc: String
+    let addWord: String
+    let spokenWord: String
+    let correctedWord: String
+    let delete: String
+    
+    // AI Assistant
+    let aiAssistantPromptLabel: String
+    let aiAssistantPromptDesc: String
     
     // Buttons
     let reset: String
@@ -118,8 +136,14 @@ struct L10n: Equatable {
     // English
     static let en = L10n(
         settingsTitle: "SupraSonic Settings",
-        configurationTab: "Configuration",
+        generalTab: "General",
         historyTab: "History",
+        aiAssistantTab: "AI Assistant",
+        muteDuringRecording: "Mute During Recording",
+        muteDuringRecordingDesc: "Mute system sounds while recording is in progress",
+        llmProviderLabel: "AI Model Provider",
+        apiKeyLabel: "API Key",
+        localModelActive: "Using local Mistral model (offline)",
         shortcutsSection: "KEYBOARD SHORTCUT",
         hotkeyModeLabel: "Mode",
         hotkeyModePTT: "Push to Talk",
@@ -149,6 +173,16 @@ struct L10n: Equatable {
         copy: "Copy",
         clearHistoryConfirm: "Clear History?",
         clearHistoryMessage: "All transcriptions will be deleted.",
+        
+        // Vocabulary
+        vocabularyTab: "Vocabulary",
+        vocabularyDesc: "Teach SupraSonic how to spell specific words or proper names.",
+        addWord: "Add Word",
+        spokenWord: "Spoken Word (e.g., supra sonic)",
+        correctedWord: "Correction (e.g., SupraSonic)",
+        delete: "Delete",
+        aiAssistantPromptLabel: "Assistant Prompt",
+        aiAssistantPromptDesc: "This prompt defines how the AI transforms the text you highlight. Triggered by Right Option.",
         reset: "Reset",
         resetConfirm: "Reset Settings?",
         resetMessage: "All settings will be restored to their default values.",
@@ -206,8 +240,14 @@ struct L10n: Equatable {
     // French
     static let fr = L10n(
         settingsTitle: "Paramètres SupraSonic",
-        configurationTab: "Configuration",
+        generalTab: "Général",
         historyTab: "Historique",
+        aiAssistantTab: "Assistant IA",
+        muteDuringRecording: "Couper le son pendant l'enregistrement",
+        muteDuringRecordingDesc: "Coupe le son du système pendant les phases d'enregistrement",
+        llmProviderLabel: "Fournisseur de modèle IA",
+        apiKeyLabel: "Clé API",
+        localModelActive: "Utilisation du modèle Mistral local (hors-ligne)",
         shortcutsSection: "RACCOURCI CLAVIER",
         hotkeyModeLabel: "Mode",
         hotkeyModePTT: "Push to Talk",
@@ -237,6 +277,16 @@ struct L10n: Equatable {
         copy: "Copier",
         clearHistoryConfirm: "Effacer l'historique?",
         clearHistoryMessage: "Toutes les transcriptions seront supprimées.",
+        
+        // Vocabulary
+        vocabularyTab: "Vocabulaire",
+        vocabularyDesc: "Apprenez à SupraSonic comment écrire des mots spécifiques ou des noms propres.",
+        addWord: "Ajouter un mot",
+        spokenWord: "Mot entendu (ex: supra sonic)",
+        correctedWord: "Correction (ex: SupraSonic)",
+        delete: "Supprimer",
+        aiAssistantPromptLabel: "Prompt de l'Assistant",
+        aiAssistantPromptDesc: "Ce prompt définit comment l'IA transforme le texte que vous surlignez via Option Droite.",
         reset: "Réinitialiser",
         resetConfirm: "Réinitialiser les paramètres?",
         resetMessage: "Tous les paramètres seront remis à leurs valeurs par défaut.",

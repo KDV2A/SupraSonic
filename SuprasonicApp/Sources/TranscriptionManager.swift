@@ -18,7 +18,12 @@ class TranscriptionManager: ObservableObject {
     private init() {}
     
     /// Initialize the Parakeet ASR engine
-    func initialize(language: String = "fr") async throws {
+    func initialize(language: String = "fr", forceReload: Bool = false) async throws {
+        if isReady && !forceReload {
+            print("✅ TranscriptionManager: Already ready and no force reload requested.")
+            return
+        }
+        
         if isInitializing {
             print("⚠️ TranscriptionManager: Already initializing, skipping...")
             return
@@ -127,6 +132,19 @@ class TranscriptionManager: ObservableObject {
             isReady = false
             statusMessage = "\(L10n.isFrench ? "Erreur" : "Error"): \(error.localizedDescription)"
             throw error
+        }
+    }
+
+    /// Pre-warm the engine (e.g., after system wake)
+    func preWarm() {
+        guard isReady, let fluidAsr = fluidAsr else { return }
+        
+        Task {
+            print("🔥 TranscriptionManager: Proactive pre-warm started...")
+            // Perform a small dummy transcription to wake up GPU/Metal
+            let dummySamples = [Float](repeating: 0, count: 3200) // 0.2s at 16kHz
+            _ = try? await fluidAsr.transcribe(dummySamples)
+            print("✅ TranscriptionManager: Proactive pre-warm complete")
         }
     }
 
@@ -258,7 +276,32 @@ class TranscriptionManager: ObservableObject {
         }
         
         let result = try await fluidAsr.transcribe(audioSamples)
-        return result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let processedText = result.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return applyVocabularyMapping(to: processedText)
+    }
+    
+    private func applyVocabularyMapping(to text: String) -> String {
+        let mapping = SettingsManager.shared.vocabularyMapping
+        guard !mapping.isEmpty else { return text }
+        
+        var correctedText = text
+        
+        // Sort keys by length (descending) to avoid partial replacements of longer phrases
+        let sortedKeys = mapping.keys.sorted { $0.count > $1.count }
+        
+        for spoken in sortedKeys {
+            if let corrected = mapping[spoken] {
+                // Use regex for case-insensitive whole-word replacement if possible, 
+                // but simple string replacement is safer for generic phrases.
+                // We do case-insensitive search but preserve general context.
+                let pattern = "\\b\(NSRegularExpression.escapedPattern(for: spoken))\\b"
+                if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                    correctedText = regex.stringByReplacingMatches(in: correctedText, options: [], range: NSRange(location: 0, length: correctedText.utf16.count), withTemplate: corrected)
+                }
+            }
+        }
+        
+        return correctedText
     }
 }
 

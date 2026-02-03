@@ -13,9 +13,15 @@ struct Constants {
     static let targetModelName = "parakeet-tdt-0.6b-v3-coreml"
     
     // MARK: - LLM
-    static let llmModelName = "LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit"
+    static let llmModelName = "alexgusevski/Ministral-3-3B-Instruct-2512-q4-mlx"
     static let llmMaxTokens = 512
     static let llmTemperature: Float = 0.7
+    static let defaultAISkillPrompt = "Tu es un traducteur Français-Anglais professionnel, traduis l’input sans commentaires ni formatage. Input:"
+    
+    // Cloud Model Names (for display and API calls)
+    static let geminiModelName = "gemini-1.5-flash"
+    static let openaiModelName = "gpt-4o-mini"
+    static let anthropicModelName = "claude-3-5-haiku-latest"
     
     // MARK: - UI
     static let uiUpdateFPS: Double = 30.0
@@ -62,6 +68,12 @@ struct Constants {
         static let historyEnabled = "historyEnabled"
         static let launchOnLogin = "launchOnLogin"
         static let transcriptionHistory = "transcriptionHistory"
-        static let llmEnabled = "llmEnabled"
+        static let aiSkills = "aiSkills"
+        static let muteSystemSound = "muteSystemSound"
+        static let llmProvider = "llmProvider"
+        static let geminiApiKey = "geminiApiKey"
+        static let openaiApiKey = "openaiApiKey"
+        static let anthropicApiKey = "anthropicApiKey"
+        static let vocabularyMapping = "vocabularyMapping"
     }
 }

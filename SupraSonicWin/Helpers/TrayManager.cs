@@ -31,9 +31,28 @@ namespace SupraSonicWin.Helpers
             // Double click to show settings
             m_taskbarIcon.TrayLeftMouseDown += (s, e) => OnShowSettingsRequested?.Invoke();
 
-            // Context Menu (Simplified)
-            // In a full WinUI 3 app, we'd define this in XAML or via a MenuFlyout
-            // For now, we'll hook into the standard Tray events
+            // Context Menu
+            var menu = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+            
+            // Version Item (Disabled)
+            var versionItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { 
+                Text = "SupraSonic v1.2.0", // Hardcoded for now as assembly versioning can be complex in WinUI 3
+                IsEnabled = false 
+            };
+            menu.Items.Add(versionItem);
+            menu.Items.Add(new Microsoft.UI.Xaml.Controls.MenuFlyoutSeparator());
+
+            // Settings Item
+            var settingsItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = "Settings" };
+            settingsItem.Click += (s, e) => OnShowSettingsRequested?.Invoke();
+            menu.Items.Add(settingsItem);
+
+            // Exit Item
+            var exitItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = "Exit" };
+            exitItem.Click += (s, e) => OnExitRequested?.Invoke();
+            menu.Items.Add(exitItem);
+
+            m_taskbarIcon.ContextFlyout = menu;
         }
 
         public void Dispose()
