@@ -108,17 +108,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return true
         }
         
-        // 2. Developer/Debug Convenience:
-        // If setup is marked complete, assume user knows what they are doing.
-        // We still log warnings but don't force the setup window loop.
-        
-        let hasMic = PermissionsManager.shared.checkMicrophonePermission() == .granted
-        let hasAccessibility = PermissionsManager.shared.checkAccessibilityPermission()
+        // 2. Reinstall detection: If setup was "completed" but models are missing,
+        //    the user likely trashed the app and reinstalled. Reset and show onboarding.
         let hasModel = ModelManager.shared.hasAnyModel()
-        
-        if !hasMic { debugLog("⚠️ App Warning: Missing Microphone Permission (Setup skipped by preference)") }
-        if !hasAccessibility { debugLog("⚠️ App Warning: Missing Accessibility Permission (Setup skipped by preference)") }
-        if !hasModel { debugLog("⚠️ App Warning: Missing ML Model (Setup skipped by preference)") }
+        if !hasModel {
+            debugLog("🚀 App: Models missing (likely reinstall after uninstall). Resetting setup.")
+            UserDefaults.standard.set(false, forKey: Constants.Keys.setupCompleted)
+            // Clean up stale accessibility permissions from previous install
+            removeAccessibilityPermissions()
+            return true
+        }
         
         return false
     }

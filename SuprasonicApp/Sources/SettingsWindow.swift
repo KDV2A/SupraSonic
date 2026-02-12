@@ -2683,7 +2683,14 @@ private func createVocabularyView() -> NSView {
             }
         }
         
-        // Step 4: Move app to trash
+        // Step 4: Clear UserDefaults so onboarding shows on reinstall
+        if let bundleId = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleId)
+            UserDefaults.standard.synchronize()
+            debugLog("🗑️ Uninstall: Cleared all UserDefaults")
+        }
+        
+        // Step 5: Move app to trash
         let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
         do {
             try FileManager.default.trashItem(at: appURL, resultingItemURL: nil)
