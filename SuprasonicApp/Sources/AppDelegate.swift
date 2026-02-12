@@ -108,13 +108,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return true
         }
         
-        // 2. Reinstall detection: If setup was "completed" but models are missing,
-        //    the user likely trashed the app and reinstalled. Reset and show onboarding.
-        let hasModel = ModelManager.shared.hasAnyModel()
-        if !hasModel {
-            debugLog("🚀 App: Models missing (likely reinstall after uninstall). Resetting setup.")
+        // 2. Reinstall detection: Compare executable creation date with stored value.
+        //    When user trashes app and drags a fresh copy from DMG, the executable
+        //    gets a new creation date. Models/UserDefaults persist but this detects
+        //    a new app bundle.
+        let installKey = "appInstallCreationDate"
+        if let execURL = Bundle.main.executableURL,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: execURL.path),
+           let creationDate = attrs[.creationDate] as? Date {
+            let storedDate = UserDefaults.standard.object(forKey: installKey) as? Date
+            if storedDate == nil || abs(creationDate.timeIntervalSince(storedDate!)) > 1.0 {
+                debugLog("🚀 App: New app bundle detected (creation date mismatch). Showing setup.")
+                UserDefaults.standard.set(false, forKey: Constants.Keys.setupCompleted)
+                removeAccessibilityPermissions()
+                return true
+            }
+        }
+        
+        // 3. Fallback: If models are missing, force setup
+        if !ModelManager.shared.hasAnyModel() {
+            debugLog("🚀 App: Models missing. Showing setup.")
             UserDefaults.standard.set(false, forKey: Constants.Keys.setupCompleted)
-            // Clean up stale accessibility permissions from previous install
             removeAccessibilityPermissions()
             return true
         }
@@ -138,6 +152,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         // 2. Mark as completed in UserDefaults
         UserDefaults.standard.set(true, forKey: Constants.Keys.setupCompleted)
+        
+        // 2b. Save executable creation date for reinstall detection
+        if let execURL = Bundle.main.executableURL,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: execURL.path),
+           let creationDate = attrs[.creationDate] as? Date {
+            UserDefaults.standard.set(creationDate, forKey: "appInstallCreationDate")
+        }
+        
         UserDefaults.standard.synchronize()
         
         // 3. Hide the setup window
@@ -1026,7 +1048,7 @@ extension AppDelegate {
         }
     }
     
-    /// Resets app state and restarts with onboarding
+    /// Resets app state and shows onboarding inline (no relaunch)
     private func performResetAndRestart() {
         // 1. Reset setup completed flag to trigger onboarding
         UserDefaults.standard.set(false, forKey: Constants.Keys.setupCompleted)
@@ -1040,18 +1062,15 @@ extension AppDelegate {
         // 4. Remove SupraSonic from accessibility permissions via tccutil
         removeAccessibilityPermissions()
         
-        // 5. Show confirmation and relaunch
-        let confirmAlert = NSAlert()
-        confirmAlert.alertStyle = .informational
-        confirmAlert.messageText = L10n.isFrench ? "Réinitialisation terminée" : "Reset Complete"
-        confirmAlert.informativeText = L10n.isFrench
-            ? "L'application va maintenant redémarrer pour relancer la configuration."
-            : "The application will now restart to begin setup."
-        confirmAlert.addButton(withTitle: "OK")
-        confirmAlert.runModal()
+        // 5. Remove global hotkey monitors to avoid conflicts during setup
+        removeHotkeyMonitors()
         
-        // 6. Relaunch the app
-        relaunchApp()
+        // 6. Show setup window inline (no relaunch — avoids crash)
+        // Re-register for setup completion notification
+        NotificationCenter.default.addObserver(self, selector: #selector(onSetupComplete), name: Constants.NotificationNames.setupComplete, object: nil)
+        
+        NSApp.setActivationPolicy(.regular)
+        showSetup()
     }
     
     /// Removes SupraSonic from accessibility permissions using tccutil
@@ -1072,17 +1091,5 @@ extension AppDelegate {
         }
     }
     
-    /// Relaunches the application
-    private func relaunchApp() {
-        let url = URL(fileURLWithPath: Bundle.main.bundlePath)
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        
-        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
-            DispatchQueue.main.async {
-                NSApp.terminate(nil)
-            }
-        }
-    }
 }
 
