@@ -146,14 +146,16 @@ class LLMManager: ObservableObject {
         
         // Prepare Transcript
         let fullText = meeting.segments.map { "[\($0.speakerName ?? "Speaker")]: \($0.text)" }.joined(separator: "\n")
+        let lang = L10n.isFrench ? "français" : "English"
         let prompt = """
         You are an expert meeting assistant. Analyze the following meeting transcript.
+        IMPORTANT: You MUST write your entire response in \(lang).
         
         Output a response in JSON format with the following structure:
         {
-          "summary": "A concise paragraph summarizing the meeting.",
-          "actionItems": ["Action item 1", "Action item 2"],
-          "title": "A suggested title for the meeting"
+          "summary": "A concise paragraph summarizing the meeting (in \(lang)).",
+          "actionItems": ["Action item 1 (in \(lang))", "Action item 2 (in \(lang))"],
+          "title": "A suggested title for the meeting (in \(lang))"
         }
         
         Transcript:
@@ -328,19 +330,36 @@ class LLMManager: ObservableObject {
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, response) = try await session.data(for: request)
+        var lastData: Data?
+        var lastStatusCode = 0
         
-        if let httpResponse = response as? HTTPURLResponse {
-            print("🌐 Gemini API Status: \(httpResponse.statusCode)")
-            if httpResponse.statusCode != 200 {
-                let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown Error"
-                print("❌ Gemini API Error: \(errorMsg.prefix(200))")
-                throw NSError(domain: "Gemini", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+        for attempt in 0..<3 {
+            let (data, response) = try await session.data(for: request)
+            lastData = data
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                lastStatusCode = httpResponse.statusCode
+                print("🌐 Gemini API Status: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode == 200 {
+                    let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                    return result.candidates.first?.content.parts.first?.text ?? ""
+                }
+                
+                // Retry on 429 rate limit
+                if httpResponse.statusCode == 429 && attempt < 2 {
+                    let delay = Double(attempt + 1) * 5.0
+                    print("⏳ Gemini: Rate limited, retrying in \(delay)s (attempt \(attempt + 1)/3)...")
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
             }
+            break
         }
         
-        let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
-        return result.candidates.first?.content.parts.first?.text ?? ""
+        let errorMsg = String(data: lastData ?? Data(), encoding: .utf8) ?? "Unknown Error"
+        print("❌ Gemini API Error: \(errorMsg.prefix(200))")
+        throw NSError(domain: "Gemini", code: lastStatusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
     }
     
     private func callAnthropic(apiKey: String, prompt: String) async throws -> String {

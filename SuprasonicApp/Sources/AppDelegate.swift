@@ -64,6 +64,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Setup minimal main menu for shortcuts (Copy/Paste)
         setupMainMenu()
         
+        // Setup paste error callback - show recovery modal after multiple failures
+        KeystrokeManager.shared.onPasteError = { [weak self] in
+            let reason = L10n.isFrench
+                ? "Le collage de texte ne fonctionne pas. Les permissions d'accessibilité peuvent être corrompues."
+                : "Text pasting is not working. Accessibility permissions may be corrupted."
+            self?.showRecoveryModal(reason: reason)
+        }
+        
         // Listen for model selection changes
         NotificationCenter.default.addObserver(self, selector: #selector(onModelSelectionChanged), name: Constants.NotificationNames.modelSelectionChanged, object: nil)
         
@@ -394,21 +402,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         if let button = statusItem.button {
             // Try multiple locations for the icon
             var icon: NSImage?
+            var iconSource = "none"
             
             // 1. Try main bundle Resources folder (primary location for bundled app)
             if let iconURL = Bundle.main.url(forResource: "suprasonic-icon-black", withExtension: "png") {
                 icon = NSImage(contentsOf: iconURL)
+                if icon != nil { iconSource = "main bundle" }
             }
             
             // 2. Try in nested SPM resource bundle (for relocated bundles)
             if icon == nil {
                 if let bundleURL = Bundle.main.url(forResource: "SupraSonicApp_SupraSonicApp", withExtension: "bundle"),
                    let resourceBundle = Bundle(url: bundleURL) {
-                    if let iconURL = resourceBundle.url(forResource: "icon_32x32@2x", withExtension: "png") {
+                    if let iconURL = resourceBundle.url(forResource: "suprasonic-icon-black", withExtension: "png") {
                         icon = NSImage(contentsOf: iconURL)
+                        if icon != nil { iconSource = "nested SPM bundle" }
                     }
                 }
             }
+            
+            // 3. Try SPM debug build path (bundle next to executable)
+            if icon == nil {
+                let executablePath = CommandLine.arguments[0]
+                let executableURL = URL(fileURLWithPath: executablePath).standardized
+                let debugBundleURL = executableURL.deletingLastPathComponent()
+                    .appendingPathComponent("SupraSonicApp_SupraSonicApp.bundle")
+                    .appendingPathComponent("Resources")
+                    .appendingPathComponent("suprasonic-icon-black.png")
+                if FileManager.default.fileExists(atPath: debugBundleURL.path) {
+                    icon = NSImage(contentsOf: debugBundleURL)
+                    if icon != nil { iconSource = "debug build path" }
+                }
+            }
+            
+            print("🎨 Status bar icon source: \(iconSource), loaded: \(icon != nil)")
             
             if let icon = icon {
                 icon.isTemplate = true
@@ -416,6 +443,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 button.image = icon
             } else {
                 // Fallback to system symbol
+                print("⚠️ Using fallback system symbol for status bar")
                 button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: Constants.appName)
                 button.image?.isTemplate = true
             }
@@ -435,13 +463,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let micSubmenu = NSMenu()
         micMenuItem.submenu = micSubmenu
         menu.addItem(micMenuItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        let meetingItem = NSMenuItem(title: L10n.isFrench ? "Démarrer une réunion" : "Start Meeting", action: #selector(toggleMeeting), keyEquivalent: "m")
-        meetingItem.target = self
-        meetingItem.keyEquivalentModifierMask = [.command, .option]
-        menu.addItem(meetingItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -489,28 +510,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
     
     private func updateStatusMenu() {
-        guard let menu = statusItem.menu else { return }
-        
-        // Find or create Meeting item
-        if let meetingItem = menu.items.first(where: { $0.action == #selector(toggleMeeting) }) {
-            meetingItem.title = MeetingManager.shared.isMeetingActive 
-                ? (L10n.isFrench ? "Terminer la réunion" : "End Meeting")
-                : (L10n.isFrench ? "Démarrer une réunion" : "Start Meeting")
-        }
-        
-        // Remove old participant items if any
-        menu.items.removeAll(where: { $0.action == #selector(showParticipantEnrollment) })
-        
-        if MeetingManager.shared.isMeetingActive {
-            let participantItem = NSMenuItem(title: L10n.isFrench ? "Enregistrer un participant..." : "Register Participant...", action: #selector(showParticipantEnrollment), keyEquivalent: "p")
-            participantItem.target = self
-            participantItem.keyEquivalentModifierMask = [.command, .option]
-            
-            // Insert after meeting item
-            if let idx = menu.items.firstIndex(where: { $0.action == #selector(toggleMeeting) }) {
-                menu.insertItem(participantItem, at: idx + 1)
-            }
-        }
+        // No dynamic menu updates needed since meeting item was removed
     }
 
     @MainActor
@@ -745,6 +745,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     
     nonisolated func handleAudioBuffer(_ audioData: [Float]) {
         Task { @MainActor in
+            // During meetings, transcription is handled by MeetingManager.flushAudio()
+            // Also skip for a few seconds after meeting stops to avoid last chunk leaking
+            if MeetingManager.shared.isMeetingActive || MeetingManager.shared.recentlyStopped {
+                return
+            }
+            
             do {
                 print("🧠 App: Starting Parakeet v3 inference...")
                 let text = try await TranscriptionManager.shared.transcribe(audioSamples: audioData)
@@ -753,60 +759,49 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 if !text.isEmpty {
                     let finalOutput = text
                     
-                    if MeetingManager.shared.isMeetingActive {
-                        // Streaming chunks are provisional (Partial)
-                        MeetingManager.shared.handleSegmentProduced(finalOutput, isFinal: false)
-                    } else {
-                        SettingsManager.shared.addToHistory(finalOutput)
+                    SettingsManager.shared.addToHistory(finalOutput)
+                    
+                    // Check for AI Skills Triggers
+                    let skills = SettingsManager.shared.aiSkills
+                    let cleanText = finalOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?- "))
+                    let lowerText = cleanText.lowercased()
+                    
+                    if let triggeredSkill = skills.first(where: { lowerText.starts(with: $0.trigger.lowercased()) }) {
+                        print("🤖 App: AI Skill Triggered: \(triggeredSkill.name)")
                         
-                        // Check for AI Skills Triggers
-                        let skills = SettingsManager.shared.aiSkills
-                        // Robust trigger check: trim whitespace and common leading punctuation
-                        let cleanText = finalOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-                            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?- "))
-                        let lowerText = cleanText.lowercased()
+                        self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Assistant IA: Réflexion..." : "AI Assistant: Thinking...")
+                        self.overlayWindow?.show()
                         
-                        if let triggeredSkill = skills.first(where: { lowerText.starts(with: $0.trigger.lowercased()) }) {
-                            print("🤖 App: AI Skill Triggered: \(triggeredSkill.name)")
-                            
-                            // 1. Show Thinking state in overlay
-                            self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Assistant IA: Réflexion..." : "AI Assistant: Thinking...")
-                            self.overlayWindow?.show()
-                            
-                            // 2. Extract input text (strip trigger)
-                            let trigger = triggeredSkill.trigger.lowercased()
-                            var inputText = finalOutput
-                            if let range = inputText.range(of: trigger, options: [.caseInsensitive]) {
-                                inputText.removeSubrange(range)
-                            }
-                            inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            
-                            // 3. Call LLMManager in background
-                            let selectedContext = self.capturedSelectedText
-                            self.capturedSelectedText = nil  // Clear after use
-                            Task {
-                                do {
-                                    let result = try await LLMManager.shared.processSkill(skill: triggeredSkill, text: inputText, selectedText: selectedContext)
-                                    print("🤖 App: AI Skill Result received")
-                                    
-                                    await MainActor.run {
-                                        self.overlayWindow?.hide()
-                                        self.handleTranscriptionResult(result)
-                                    }
-                                } catch {
-                                    print("❌ App: AI Skill failed: \(error)")
-                                    await MainActor.run {
-                                        self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Erreur Assistant IA" : "AI Assistant Error")
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                            self.overlayWindow?.hide()
-                                        }
-                                    }
+                        let trigger = triggeredSkill.trigger.lowercased()
+                        var inputText = finalOutput
+                        if let range = inputText.range(of: trigger, options: [.caseInsensitive]) {
+                            inputText.removeSubrange(range)
+                        }
+                        inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        let selectedContext = self.capturedSelectedText
+                        self.capturedSelectedText = nil
+                        Task {
+                            do {
+                                let result = try await LLMManager.shared.processSkill(skill: triggeredSkill, text: inputText, selectedText: selectedContext)
+                                print("🤖 App: AI Skill Result received")
+                                
+                                await MainActor.run {
+                                    self.overlayWindow?.hide()
+                                    self.handleTranscriptionResult(result)
+                                }
+                            } catch {
+                                print("❌ App: AI Skill failed: \(error)")
+                                await MainActor.run {
+                                    self.overlayWindow?.hide()
+                                    self.showAPIErrorAlert(error: error)
                                 }
                             }
-                        } else {
-                            // Regular dictation
-                            self.handleTranscriptionResult(finalOutput)
                         }
+                    } else {
+                        // Regular dictation
+                        self.handleTranscriptionResult(finalOutput)
                     }
                 }
             } catch {
@@ -969,4 +964,136 @@ class RustAudioListener: TranscriptionListener {
 }
 
 extension AppDelegate: RustAudioDelegate {}
+
+// MARK: - Error Alerts & Recovery System
+
+extension AppDelegate {
+    
+    /// Shows an alert for API errors and offers to open settings
+    func showAPIErrorAlert(error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        
+        let nsError = error as NSError
+        
+        if nsError.domain == "LLMManager" && (nsError.code == 1 || nsError.code == 2) {
+            alert.messageText = L10n.isFrench ? "Clé API manquante" : "API Key Missing"
+            alert.informativeText = L10n.isFrench
+                ? "Aucune clé API n'est configurée pour l'assistant IA.\n\nConfigurez votre clé API dans les paramètres."
+                : "No API key is configured for the AI assistant.\n\nConfigure your API key in settings."
+        } else if nsError.domain == NSURLErrorDomain {
+            alert.messageText = L10n.isFrench ? "Erreur de connexion" : "Connection Error"
+            alert.informativeText = L10n.isFrench
+                ? "Impossible de contacter le serveur IA.\n\nVérifiez votre connexion Internet."
+                : "Unable to reach the AI server.\n\nCheck your internet connection."
+        } else {
+            alert.messageText = L10n.isFrench ? "Erreur API" : "API Error"
+            let errorMsg = nsError.localizedDescription
+            let shortMsg = errorMsg.count > 150 ? String(errorMsg.prefix(150)) + "..." : errorMsg
+            alert.informativeText = L10n.isFrench
+                ? "L'assistant IA a rencontré une erreur :\n\(shortMsg)"
+                : "The AI assistant encountered an error:\n\(shortMsg)"
+        }
+        
+        alert.addButton(withTitle: L10n.isFrench ? "Ouvrir les paramètres" : "Open Settings")
+        alert.addButton(withTitle: L10n.isFrench ? "Fermer" : "Close")
+        
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            openSettings()
+        }
+    }
+    
+    /// Shows a recovery modal when the app detects critical issues.
+    /// Offers to reset the app and restart with onboarding.
+    func showRecoveryModal(reason: String? = nil) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L10n.isFrench ? "SupraSonic a rencontré un problème" : "SupraSonic encountered a problem"
+        
+        let defaultReason = L10n.isFrench
+            ? "L'application ne fonctionne pas correctement."
+            : "The application is not working correctly."
+        
+        alert.informativeText = L10n.isFrench
+            ? "\(reason ?? defaultReason)\n\nVoulez-vous réinitialiser l'application et relancer la configuration ?"
+            : "\(reason ?? defaultReason)\n\nWould you like to reset the application and restart the setup?"
+        
+        alert.addButton(withTitle: L10n.isFrench ? "Réinitialiser et relancer" : "Reset and Restart")
+        alert.addButton(withTitle: L10n.isFrench ? "Annuler" : "Cancel")
+        
+        // Add app icon
+        if let icon = NSImage(named: NSImage.applicationIconName) {
+            alert.icon = icon
+        }
+        
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            performResetAndRestart()
+        }
+    }
+    
+    /// Resets app state and restarts with onboarding
+    private func performResetAndRestart() {
+        // 1. Reset setup completed flag to trigger onboarding
+        UserDefaults.standard.set(false, forKey: Constants.Keys.setupCompleted)
+        
+        // 2. Reset accessibility permission request flag
+        UserDefaults.standard.removeObject(forKey: "AppleEventsPermissionRequested")
+        
+        // 3. Reset paste failure counter
+        KeystrokeManager.shared.resetPasteFailureCounter()
+        
+        // 4. Remove SupraSonic from accessibility permissions via tccutil
+        removeAccessibilityPermissions()
+        
+        // 5. Show confirmation and relaunch
+        let confirmAlert = NSAlert()
+        confirmAlert.alertStyle = .informational
+        confirmAlert.messageText = L10n.isFrench ? "Réinitialisation terminée" : "Reset Complete"
+        confirmAlert.informativeText = L10n.isFrench
+            ? "L'application va maintenant redémarrer pour relancer la configuration."
+            : "The application will now restart to begin setup."
+        confirmAlert.addButton(withTitle: "OK")
+        confirmAlert.runModal()
+        
+        // 6. Relaunch the app
+        relaunchApp()
+    }
+    
+    /// Removes SupraSonic from accessibility permissions using tccutil
+    private func removeAccessibilityPermissions() {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.suprasonic.app"
+        
+        // Use tccutil to reset accessibility permissions for this app
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", "Accessibility", bundleId]
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            print("✅ Accessibility permissions reset for \(bundleId)")
+        } catch {
+            print("⚠️ Failed to reset accessibility permissions: \(error)")
+        }
+    }
+    
+    /// Relaunches the application
+    private func relaunchApp() {
+        let url = URL(fileURLWithPath: Bundle.main.bundlePath)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+}
 

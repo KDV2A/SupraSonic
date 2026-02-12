@@ -13,10 +13,14 @@ enum MeetingStatus: String, Codable {
 struct MeetingSegment: Codable, Identifiable {
     let id: UUID
     let timestamp: TimeInterval // seconds from start
-    let text: String
+    var text: String
     var speakerId: String?
     var speakerName: String?
     var isFinal: Bool = true
+    
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, text, speakerId, speakerName, isFinal
+    }
     
     init(timestamp: TimeInterval, text: String, speakerId: String? = nil, speakerName: String? = nil, isFinal: Bool = true) {
         self.id = UUID()
@@ -25,6 +29,16 @@ struct MeetingSegment: Codable, Identifiable {
         self.speakerId = speakerId
         self.speakerName = speakerName
         self.isFinal = isFinal
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        timestamp = try container.decodeIfPresent(TimeInterval.self, forKey: .timestamp) ?? 0
+        text = try container.decode(String.self, forKey: .text)
+        speakerId = try container.decodeIfPresent(String.self, forKey: .speakerId)
+        speakerName = try container.decodeIfPresent(String.self, forKey: .speakerName)
+        isFinal = try container.decodeIfPresent(Bool.self, forKey: .isFinal) ?? true
     }
 }
 
@@ -37,11 +51,28 @@ struct Meeting: Codable, Identifiable {
     var duration: TimeInterval
     var status: MeetingStatus
     var segments: [MeetingSegment]
-    var participantIds: [String] // SpeakerProfile IDs
+    var participantIds: [String]
     
     // LLM Post-processed content
     var summary: String?
     var actionItems: [String] = []
+    
+    enum CodingKeys: String, CodingKey {
+        case id, title, date, duration, status, segments, participantIds, summary, actionItems
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        date = try container.decode(Date.self, forKey: .date)
+        duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration) ?? 0
+        status = try container.decodeIfPresent(MeetingStatus.self, forKey: .status) ?? .completed
+        segments = try container.decodeIfPresent([MeetingSegment].self, forKey: .segments) ?? []
+        participantIds = try container.decodeIfPresent([String].self, forKey: .participantIds) ?? []
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        actionItems = try container.decodeIfPresent([String].self, forKey: .actionItems) ?? []
+    }
     
     var finalTranscript: String {
         segments.map { segment in

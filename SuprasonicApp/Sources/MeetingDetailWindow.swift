@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import UniformTypeIdentifiers
 
 class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, NSTableViewDataSource {
     private var meeting: Meeting
@@ -13,6 +14,7 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
     private var transcriptTableView: NSTableView!
     private var participantsStack: NSStackView!
     private var liveIndicator: NSView?
+    private var sidebarContainer: NSView?
     
     private var timeObserverToken: Any?
     
@@ -64,6 +66,7 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         
         // 1. Sidebar (AI Summary & Participants)
         let sidebar = createSidebar()
+        self.sidebarContainer = sidebar
         splitView.addArrangedSubview(sidebar)
         
         // 2. Main Content (Player & Transcript)
@@ -84,80 +87,59 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         let container = NSView()
         container.wantsLayer = true
         
-        let scroll = NSScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        
-        let document = NSView()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = document
-        container.addSubview(scroll)
-        
         let stack = NSStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 24
-        stack.edgeInsets = NSEdgeInsets(top: 60, left: 24, bottom: 40, right: 24)
-        document.addSubview(stack)
+        stack.spacing = 20
+        container.addSubview(stack)
         
-        // Constraints
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: container.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            
-            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
-            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
-            document.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
-            
-            stack.topAnchor.constraint(equalTo: document.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-            stack.widthAnchor.constraint(equalTo: scroll.widthAnchor)
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 50),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
         ])
         
-        // --- Header Section ---
-        let headerStack = NSStackView()
-        headerStack.orientation = .vertical
-        headerStack.alignment = .leading
-        headerStack.spacing = 8
-        
+        // --- Header ---
         if MeetingManager.shared.isMeetingActive && MeetingManager.shared.currentMeeting?.id == meeting.id {
-            let liveTag = createLiveTag()
-            headerStack.addArrangedSubview(liveTag)
+            stack.addArrangedSubview(createLiveTag())
         }
         
         let titleLabel = NSTextField(wrappingLabelWithString: meeting.title)
         titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .bold)
         titleLabel.textColor = .labelColor
-        headerStack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(titleLabel)
         
         let dateLabel = NSTextField(labelWithString: meeting.date.formatted(date: .long, time: .shortened))
         dateLabel.font = NSFont.systemFont(ofSize: 13)
         dateLabel.textColor = .secondaryLabelColor
-        headerStack.addArrangedSubview(dateLabel)
+        stack.addArrangedSubview(dateLabel)
         
-        stack.addArrangedSubview(headerStack)
+        if meeting.duration > 0 {
+            let durMin = Int(meeting.duration) / 60
+            let durSec = Int(meeting.duration) % 60
+            let durStr = durMin > 0 ? "\(durMin) min \(durSec)s" : "\(durSec)s"
+            let durLabel = NSTextField(labelWithString: L10n.isFrench ? "Durée : \(durStr)" : "Duration: \(durStr)")
+            durLabel.font = NSFont.systemFont(ofSize: 12)
+            durLabel.textColor = .tertiaryLabelColor
+            stack.addArrangedSubview(durLabel)
+        }
         
-        // --- Summary Section ---
-        if let summary = meeting.summary {
+        // --- Summary ---
+        if let summary = meeting.summary, !summary.isEmpty {
             stack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "RÉSUMÉ" : "SUMMARY"))
             let summaryText = NSTextField(wrappingLabelWithString: summary)
-            summaryText.font = NSFont.systemFont(ofSize: 14)
+            summaryText.font = NSFont.systemFont(ofSize: 13)
             summaryText.lineBreakMode = .byWordWrapping
+            summaryText.textColor = .labelColor
             stack.addArrangedSubview(summaryText)
         }
         
-        // --- Participants Section ---
+        // --- Participants ---
         stack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "PARTICIPANTS" : "PARTICIPANTS"))
         participantsStack = NSStackView()
         participantsStack.orientation = .vertical
-        participantsStack.spacing = 12
+        participantsStack.spacing = 8
         participantsStack.alignment = .leading
         stack.addArrangedSubview(participantsStack)
         
@@ -177,7 +159,77 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
             }
         }
         
+        // --- Export Button ---
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        stack.addArrangedSubview(spacer)
+        
+        let exportButton = NSButton(title: L10n.isFrench ? "Exporter le compte-rendu" : "Export Summary", target: self, action: #selector(exportMeetingSummary))
+        exportButton.bezelStyle = .rounded
+        exportButton.controlSize = .large
+        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Export")
+        exportButton.imagePosition = .imageLeading
+        stack.addArrangedSubview(exportButton)
+        
         return container
+    }
+    
+    @objc private func exportMeetingSummary() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(meeting.title.replacingOccurrences(of: " ", with: "_")).txt"
+        panel.title = L10n.isFrench ? "Exporter le compte-rendu" : "Export Meeting Summary"
+        
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url, let self = self else { return }
+            
+            var content = ""
+            
+            // Title & Date
+            content += "═══════════════════════════════════════\n"
+            content += "  \(self.meeting.title)\n"
+            content += "  \(self.meeting.date.formatted(date: .long, time: .shortened))\n"
+            if self.meeting.duration > 0 {
+                let m = Int(self.meeting.duration) / 60
+                let s = Int(self.meeting.duration) % 60
+                content += "  \(L10n.isFrench ? "Durée" : "Duration"): \(m > 0 ? "\(m) min \(s)s" : "\(s)s")\n"
+            }
+            content += "═══════════════════════════════════════\n\n"
+            
+            // Summary
+            if let summary = self.meeting.summary, !summary.isEmpty {
+                content += "── \(L10n.isFrench ? "RÉSUMÉ" : "SUMMARY") ──\n\n"
+                content += summary + "\n\n"
+            }
+            
+            // Action Items
+            if !self.meeting.actionItems.isEmpty {
+                content += "── \(L10n.isFrench ? "ACTIONS" : "ACTION ITEMS") ──\n\n"
+                for item in self.meeting.actionItems {
+                    content += "  • \(item)\n"
+                }
+                content += "\n"
+            }
+            
+            // Transcription
+            content += "── TRANSCRIPTION ──\n\n"
+            for segment in self.meeting.segments {
+                let name = segment.speakerName ?? "Participant"
+                let h = Int(segment.timestamp) / 3600
+                let m = (Int(segment.timestamp) % 3600) / 60
+                let s = Int(segment.timestamp) % 60
+                let ts = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%02d:%02d", m, s)
+                content += "[\(ts)] \(name):\n\(segment.text)\n\n"
+            }
+            
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+            } catch {
+                print("❌ Export failed: \(error)")
+            }
+        }
     }
     
     private func createMainContent() -> NSView {
@@ -185,64 +237,54 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         
-        // 1. Player Control Bar
-        let playerBar = NSView()
-        playerBar.translatesAutoresizingMaskIntoConstraints = false
-        playerBar.wantsLayer = true
-        playerBar.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor
-        
+        // Hidden audio controls (only shown for legacy recordings)
         playButton = NSButton()
-        playButton.translatesAutoresizingMaskIntoConstraints = false
-        playButton.bezelStyle = .circular
-        playButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")
-        playButton.isBordered = false
-        playButton.contentTintColor = Constants.brandBlue
-        playButton.target = self
-        playButton.action = #selector(togglePlayback)
-        
+        playButton.isHidden = true
         timeSlider = NSSlider()
-        timeSlider.translatesAutoresizingMaskIntoConstraints = false
-        timeSlider.target = self
-        timeSlider.action = #selector(sliderScrubbed)
+        timeSlider.isHidden = true
+        timeLabel = NSTextField(labelWithString: "")
+        timeLabel.isHidden = true
         
-        timeLabel = NSTextField(labelWithString: "00:00 / 00:00")
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
-        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        timeLabel.textColor = .secondaryLabelColor
+        // Transcript header
+        let headerBar = NSView()
+        headerBar.translatesAutoresizingMaskIntoConstraints = false
+        headerBar.wantsLayer = true
         
-        playerBar.addSubview(playButton)
-        playerBar.addSubview(timeSlider)
-        playerBar.addSubview(timeLabel)
+        let transcriptTitle = NSTextField(labelWithString: L10n.isFrench ? "TRANSCRIPTION" : "TRANSCRIPT")
+        transcriptTitle.translatesAutoresizingMaskIntoConstraints = false
+        transcriptTitle.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        transcriptTitle.textColor = .tertiaryLabelColor
+        headerBar.addSubview(transcriptTitle)
+        
+        let segmentCount = NSTextField(labelWithString: "\(meeting.segments.count) \(L10n.isFrench ? "segments" : "segments")")
+        segmentCount.translatesAutoresizingMaskIntoConstraints = false
+        segmentCount.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        segmentCount.textColor = .quaternaryLabelColor
+        headerBar.addSubview(segmentCount)
         
         NSLayoutConstraint.activate([
-            playButton.leadingAnchor.constraint(equalTo: playerBar.leadingAnchor, constant: 20),
-            playButton.centerYAnchor.constraint(equalTo: playerBar.centerYAnchor),
-            playButton.widthAnchor.constraint(equalToConstant: 36),
-            playButton.heightAnchor.constraint(equalToConstant: 36),
-            
-            timeSlider.leadingAnchor.constraint(equalTo: playButton.trailingAnchor, constant: 16),
-            timeSlider.centerYAnchor.constraint(equalTo: playerBar.centerYAnchor),
-            timeSlider.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -16),
-            
-            timeLabel.trailingAnchor.constraint(equalTo: playerBar.trailingAnchor, constant: -24),
-            timeLabel.centerYAnchor.constraint(equalTo: playerBar.centerYAnchor)
+            transcriptTitle.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 24),
+            transcriptTitle.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+            segmentCount.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -24),
+            segmentCount.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor)
         ])
         
-        // 2. Transcript Table
+        // Transcript Table
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets(top: 20, left: 0, bottom: 20, right: 0)
+        scroll.contentInsets = NSEdgeInsets(top: 8, left: 0, bottom: 20, right: 0)
         
         transcriptTableView = NSTableView()
         transcriptTableView.delegate = self
         transcriptTableView.dataSource = self
         transcriptTableView.backgroundColor = .clear
         transcriptTableView.headerView = nil
-        transcriptTableView.intercellSpacing = NSSize(width: 0, height: 16)
+        transcriptTableView.intercellSpacing = NSSize(width: 0, height: 4)
         transcriptTableView.selectionHighlightStyle = .none
+        transcriptTableView.usesAutomaticRowHeights = true
         
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("MainCol"))
         col.resizingMask = .autoresizingMask
@@ -250,16 +292,16 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         
         scroll.documentView = transcriptTableView
         
-        container.addSubview(playerBar)
+        container.addSubview(headerBar)
         container.addSubview(scroll)
         
         NSLayoutConstraint.activate([
-            playerBar.topAnchor.constraint(equalTo: container.topAnchor),
-            playerBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            playerBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            playerBar.heightAnchor.constraint(equalToConstant: 72),
+            headerBar.topAnchor.constraint(equalTo: container.topAnchor, constant: 40),
+            headerBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            headerBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            headerBar.heightAnchor.constraint(equalToConstant: 30),
             
-            scroll.topAnchor.constraint(equalTo: playerBar.bottomAnchor),
+            scroll.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 4),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -321,6 +363,95 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         return container
     }
     
+    private func rebuildSidebar() {
+        guard let container = sidebarContainer else { return }
+        // Remove old content
+        container.subviews.forEach { $0.removeFromSuperview() }
+        
+        // Rebuild sidebar with updated meeting data (summary, action items, etc.)
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 20
+        container.addSubview(stack)
+        
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 50),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+        ])
+        
+        // Header
+        let titleLabel = NSTextField(wrappingLabelWithString: meeting.title)
+        titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .bold)
+        titleLabel.textColor = .labelColor
+        stack.addArrangedSubview(titleLabel)
+        
+        let dateLabel = NSTextField(labelWithString: meeting.date.formatted(date: .long, time: .shortened))
+        dateLabel.font = NSFont.systemFont(ofSize: 13)
+        dateLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(dateLabel)
+        
+        if meeting.duration > 0 {
+            let durMin = Int(meeting.duration) / 60
+            let durSec = Int(meeting.duration) % 60
+            let durStr = durMin > 0 ? "\(durMin) min \(durSec)s" : "\(durSec)s"
+            let durLabel = NSTextField(labelWithString: L10n.isFrench ? "Durée : \(durStr)" : "Duration: \(durStr)")
+            durLabel.font = NSFont.systemFont(ofSize: 12)
+            durLabel.textColor = .tertiaryLabelColor
+            stack.addArrangedSubview(durLabel)
+        }
+        
+        // Summary
+        if let summary = meeting.summary, !summary.isEmpty {
+            stack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "RÉSUMÉ" : "SUMMARY"))
+            let summaryText = NSTextField(wrappingLabelWithString: summary)
+            summaryText.font = NSFont.systemFont(ofSize: 13)
+            summaryText.lineBreakMode = .byWordWrapping
+            summaryText.textColor = .labelColor
+            stack.addArrangedSubview(summaryText)
+        }
+        
+        // Participants
+        stack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "PARTICIPANTS" : "PARTICIPANTS"))
+        participantsStack = NSStackView()
+        participantsStack.orientation = .vertical
+        participantsStack.spacing = 8
+        participantsStack.alignment = .leading
+        stack.addArrangedSubview(participantsStack)
+        refreshParticipants()
+        
+        // Action Items
+        if !meeting.actionItems.isEmpty {
+            stack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "ACTIONS" : "ACTION ITEMS"))
+            for item in meeting.actionItems {
+                let row = NSStackView()
+                row.spacing = 8
+                let dot = NSTextField(labelWithString: "•")
+                dot.textColor = Constants.brandBlue
+                let txt = NSTextField(wrappingLabelWithString: item)
+                txt.font = NSFont.systemFont(ofSize: 13)
+                row.addArrangedSubview(dot)
+                row.addArrangedSubview(txt)
+                stack.addArrangedSubview(row)
+            }
+        }
+        
+        // Export Button
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        stack.addArrangedSubview(spacer)
+        
+        let exportButton = NSButton(title: L10n.isFrench ? "Exporter le compte-rendu" : "Export Summary", target: self, action: #selector(exportMeetingSummary))
+        exportButton.bezelStyle = .rounded
+        exportButton.controlSize = .large
+        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Export")
+        exportButton.imagePosition = .imageLeading
+        stack.addArrangedSubview(exportButton)
+    }
+    
     private func refreshParticipants() {
         participantsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         
@@ -330,10 +461,21 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
         }
         
         if profiles.isEmpty {
-            let label = NSTextField(labelWithString: L10n.isFrench ? "Identification en cours..." : "Identifying participants...")
-            label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-            label.textColor = .secondaryLabelColor
-            participantsStack.addArrangedSubview(label)
+            // Show unique speaker names from segments instead
+            let speakerNames = Set(meeting.segments.compactMap { $0.speakerName }).sorted()
+            if speakerNames.isEmpty {
+                let label = NSTextField(labelWithString: L10n.isFrench ? "Aucun participant détecté" : "No participants detected")
+                label.font = NSFont.systemFont(ofSize: 12)
+                label.textColor = .tertiaryLabelColor
+                participantsStack.addArrangedSubview(label)
+            } else {
+                for name in speakerNames {
+                    let label = NSTextField(labelWithString: name)
+                    label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+                    label.textColor = .secondaryLabelColor
+                    participantsStack.addArrangedSubview(label)
+                }
+            }
         } else {
             for profile in profiles {
                 let row = createParticipantRow(profile: profile)
@@ -397,7 +539,25 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
     // MARK: - Notification Handlers
     
     @objc private func onTranscriptUpdated(_ notification: Notification) {
-        // Sync meeting state
+        // Check if meeting completed (AI summary ready) — reload from disk
+        if let info = notification.userInfo,
+           let completed = info["meetingCompleted"] as? Bool, completed,
+           let meetingIdStr = info["meetingId"] as? String,
+           meetingIdStr == meeting.id.uuidString {
+            let updated = MeetingHistoryManager.shared.loadAllMeetings().first { $0.id == self.meeting.id }
+            if let updated = updated {
+                self.meeting = updated
+                DispatchQueue.main.async {
+                    // Rebuild sidebar to show summary & action items
+                    self.rebuildSidebar()
+                    self.transcriptTableView.reloadData()
+                    self.refreshParticipants()
+                }
+            }
+            return
+        }
+        
+        // Live updates during recording
         if let current = MeetingManager.shared.currentMeeting, current.id == meeting.id {
             self.meeting = current
             DispatchQueue.main.async {
@@ -417,47 +577,7 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
     // MARK: - Audio Logic
     
     private func setupAudio() {
-        let fileManager = FileManager.default
-        guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        let audioURL = documents.appendingPathComponent("SupraSonic/Meetings/\(meeting.id.uuidString)/recording.wav")
-        
-        if fileManager.fileExists(atPath: audioURL.path) {
-            let item = AVPlayerItem(url: audioURL)
-            self.playerItem = item
-            self.player = AVPlayer(playerItem: item)
-            
-            // Observer duration
-            Task {
-                do {
-                    let duration = try await item.asset.load(.duration)
-                    let seconds = CMTimeGetSeconds(duration)
-                    if !seconds.isNaN && seconds > 0 {
-                        await MainActor.run {
-                            self.timeSlider.maxValue = seconds
-                            self.updateTimeLabel(manualCurrent: 0, duration: seconds)
-                        }
-                    }
-                } catch {
-                    print("⚠️ MeetingDetail: Failed to load duration: \(error)")
-                }
-            }
-            
-            // Periodic time observer
-            let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-            timeObserverToken = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-                guard let self = self else { return }
-                if self.player?.rate != 0 {
-                    self.timeSlider.doubleValue = time.seconds
-                    self.updateTimeLabel(manualCurrent: time.seconds)
-                }
-            }
-            
-            // End observer
-            NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                self?.playButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")
-                self?.player?.seek(to: .zero)
-            }
-        }
+        // Audio playback disabled - audio files are no longer stored
     }
     
     @objc private func togglePlayback() {
@@ -512,25 +632,18 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
             cell?.identifier = id
         }
         
-        cell?.configure(segment: segment)
+        cell?.configure(segment: segment, meetingDate: meeting.date, tableWidth: tableView.frame.width)
         return cell
     }
     
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        let segment = meeting.segments[row]
-        let width = tableView.frame.width - 120 // Avatar + Spacing
-        let height = segment.text.height(withConstrainedWidth: width, font: NSFont.systemFont(ofSize: 14))
-        return max(60, height + 40)
-    }
 }
 
 // MARK: - Modern Transcript Cell
 class TranscriptCellView: NSTableCellView {
-    private let avatarView = NSView()
-    private let initialsLabel = NSTextField()
-    private let timeLabel = NSTextField()
-    private let speakerLabel = NSTextField()
-    private let contentLabel = NSTextField()
+    private var timeLabel: NSTextField!
+    private var speakerLabel: NSTextField!
+    private var contentLabel: NSTextField!
+    private var headerRow: NSStackView!
     
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -540,81 +653,62 @@ class TranscriptCellView: NSTableCellView {
     required init?(coder: NSCoder) { fatalError() }
     
     private func setup() {
-        avatarView.wantsLayer = true
-        avatarView.layer?.cornerRadius = 18
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
-        
-        initialsLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
-        initialsLabel.textColor = .white
-        initialsLabel.alignment = .center
-        initialsLabel.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.addSubview(initialsLabel)
-        
-        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        timeLabel = NSTextField(labelWithString: "")
+        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         timeLabel.textColor = .tertiaryLabelColor
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        speakerLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
-        speakerLabel.textColor = .labelColor
+        speakerLabel = NSTextField(labelWithString: "")
+        speakerLabel.font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        speakerLabel.textColor = Constants.brandBlue
         speakerLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        contentLabel.font = NSFont.systemFont(ofSize: 15)
+        contentLabel = NSTextField(wrappingLabelWithString: "")
+        contentLabel.font = NSFont.systemFont(ofSize: 14)
         contentLabel.textColor = .labelColor
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentLabel.cell?.wraps = true
-        contentLabel.cell?.isScrollable = false
+        contentLabel.lineBreakMode = .byWordWrapping
+        contentLabel.usesSingleLineMode = false
+        contentLabel.maximumNumberOfLines = 0
+        contentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
-        addSubview(avatarView)
-        addSubview(timeLabel)
-        addSubview(speakerLabel)
+        headerRow = NSStackView(views: [timeLabel, speakerLabel])
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.spacing = 10
+        headerRow.alignment = .firstBaseline
+        
+        addSubview(headerRow)
         addSubview(contentLabel)
         
         NSLayoutConstraint.activate([
-            avatarView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            avatarView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            avatarView.widthAnchor.constraint(equalToConstant: 36),
-            avatarView.heightAnchor.constraint(equalToConstant: 36),
+            headerRow.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            headerRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
             
-            initialsLabel.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            initialsLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-            
-            speakerLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16),
-            speakerLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            
-            timeLabel.leadingAnchor.constraint(equalTo: speakerLabel.trailingAnchor, constant: 12),
-            timeLabel.centerYAnchor.constraint(equalTo: speakerLabel.centerYAnchor),
-            
-            contentLabel.leadingAnchor.constraint(equalTo: speakerLabel.leadingAnchor),
-            contentLabel.topAnchor.constraint(equalTo: speakerLabel.bottomAnchor, constant: 6),
-            contentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -40),
+            contentLabel.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 4),
+            contentLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+            contentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
             contentLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
         ])
     }
     
-    func configure(segment: MeetingSegment) {
-        let timeStr = formatTime(segment.timestamp)
-        timeLabel.stringValue = timeStr
+    func configure(segment: MeetingSegment, meetingDate: Date, tableWidth: CGFloat = 600) {
+        // Show actual clock time (meetingDate + elapsed seconds)
+        let segmentDate = meetingDate.addingTimeInterval(segment.timestamp)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        timeLabel.stringValue = formatter.string(from: segmentDate)
         
-        let speakerName = segment.speakerName ?? "Speaker"
-        speakerLabel.stringValue = speakerName
+        speakerLabel.stringValue = segment.speakerName ?? "Participant"
         contentLabel.stringValue = segment.text
+        contentLabel.preferredMaxLayoutWidth = max(200, tableWidth - 48)
         
-        // Match avatar colors
-        if let profile = SpeakerEnrollmentManager.shared.profiles.first(where: { $0.name == speakerName }) {
-             avatarView.layer?.backgroundColor = NSColor(hex: profile.colorHex)?.cgColor
-             initialsLabel.stringValue = profile.initials
+        // Color speaker name based on profile
+        if let profile = SpeakerEnrollmentManager.shared.profiles.first(where: { $0.name == segment.speakerName }) {
+            speakerLabel.textColor = NSColor(hex: profile.colorHex) ?? Constants.brandBlue
         } else {
-             avatarView.layer?.backgroundColor = NSColor.systemGray.cgColor
-             initialsLabel.stringValue = String(speakerName.prefix(1)).uppercased()
+            speakerLabel.textColor = Constants.brandBlue
         }
-    }
-    
-    private func formatTime(_ seconds: Double) -> String {
-        let h = Int(seconds) / 3600
-        let m = (Int(seconds) % 3600) / 60
-        let s = Int(seconds) % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%02d:%02d", m, s)
     }
 }
 

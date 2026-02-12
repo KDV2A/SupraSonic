@@ -4,6 +4,9 @@ import AVFoundation
 import Combine
 
 class SettingsWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+    
     private var sidebarView: SidebarView!
     private var contentContainer: NSView!
     private var sidebarEffectView: NSVisualEffectView!
@@ -693,7 +696,6 @@ class SettingsWindow: NSWindow {
             
             cardView.addSubview(titleLabel)
             cardView.addSubview(dateLabel)
-            cardView.addSubview(infoLabel)
             cardView.addSubview(avatarsStack)
             
             NSLayoutConstraint.activate([
@@ -704,23 +706,20 @@ class SettingsWindow: NSWindow {
                 
                 titleLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
                 titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-                titleLabel.trailingAnchor.constraint(equalTo: infoLabel.leadingAnchor, constant: -12),
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: cardView.trailingAnchor, constant: -16),
                 
                 dateLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
                 dateLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+                dateLabel.trailingAnchor.constraint(lessThanOrEqualTo: avatarsStack.leadingAnchor, constant: -8),
                 
-                infoLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-                infoLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-                
-                avatarsStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
-                avatarsStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16)
+                avatarsStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
+                avatarsStack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor)
             ])
         }
         
         func configure(meeting: Meeting) {
             titleLabel.stringValue = meeting.title
             dateLabel.stringValue = meeting.date.formatted(date: .long, time: .shortened)
-            infoLabel.stringValue = "\(Int(meeting.duration / 60)) min • \(meeting.segments.count) segments"
             
             refreshAvatars(for: meeting)
         }
@@ -1115,6 +1114,15 @@ class SettingsWindow: NSWindow {
         
         let field = NSTextField()
         field.translatesAutoresizingMaskIntoConstraints = false
+        field.isEditable = true
+        field.isSelectable = true
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = true
+        field.backgroundColor = .textBackgroundColor
+        field.focusRingType = .exterior
+        field.cell?.isScrollable = true
+        field.cell?.wraps = false
         field.target = self
         field.action = #selector(apiKeyChanged(_:))
         field.delegate = self
@@ -1131,6 +1139,7 @@ class SettingsWindow: NSWindow {
         
         NSLayoutConstraint.activate([
             field.heightAnchor.constraint(equalToConstant: 28),
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: 400),
             fieldRow.widthAnchor.constraint(equalTo: apiKeyContent.widthAnchor)
         ])
         apiKeyBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
@@ -1780,6 +1789,8 @@ private func createHistoryView() -> NSView {
         avatar.addSubview(initials)
         
         // Name + Role
+        let hasSubtitle = !profile.role.isEmpty || !profile.groupName.isEmpty
+        
         let nameLabel = NSTextField(labelWithString: profile.name)
         nameLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1788,6 +1799,18 @@ private func createHistoryView() -> NSView {
         roleLabel.font = NSFont.systemFont(ofSize: 11)
         roleLabel.textColor = .secondaryLabelColor
         roleLabel.translatesAutoresizingMaskIntoConstraints = false
+        roleLabel.isHidden = !hasSubtitle
+        
+        // Edit button
+        let editBtn = NSButton()
+        editBtn.translatesAutoresizingMaskIntoConstraints = false
+        editBtn.bezelStyle = .circular
+        editBtn.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: "Edit")
+        editBtn.isBordered = false
+        editBtn.contentTintColor = .secondaryLabelColor
+        editBtn.target = self
+        editBtn.action = #selector(editSpeakerAction(_:))
+        editBtn.identifier = NSUserInterfaceItemIdentifier(profile.id)
         
         // Delete button
         let deleteBtn = NSButton()
@@ -1799,15 +1822,15 @@ private func createHistoryView() -> NSView {
         deleteBtn.target = self
         deleteBtn.action = #selector(deleteSpeakerAction(_:))
         deleteBtn.tag = profile.id.hashValue
-        // Store the profile ID
         deleteBtn.identifier = NSUserInterfaceItemIdentifier(profile.id)
         
         row.addSubview(avatar)
         row.addSubview(nameLabel)
         row.addSubview(roleLabel)
+        row.addSubview(editBtn)
         row.addSubview(deleteBtn)
         
-        NSLayoutConstraint.activate([
+        var constraints = [
             row.heightAnchor.constraint(equalToConstant: 44),
             
             avatar.leadingAnchor.constraint(equalTo: row.leadingAnchor),
@@ -1819,18 +1842,89 @@ private func createHistoryView() -> NSView {
             initials.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
             
             nameLabel.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 12),
-            nameLabel.topAnchor.constraint(equalTo: row.topAnchor, constant: 6),
             
-            roleLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            roleLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 1),
+            editBtn.trailingAnchor.constraint(equalTo: deleteBtn.leadingAnchor, constant: -4),
+            editBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            editBtn.widthAnchor.constraint(equalToConstant: 24),
+            editBtn.heightAnchor.constraint(equalToConstant: 24),
             
             deleteBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
             deleteBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             deleteBtn.widthAnchor.constraint(equalToConstant: 24),
             deleteBtn.heightAnchor.constraint(equalToConstant: 24)
-        ])
+        ]
+        
+        if hasSubtitle {
+            constraints.append(nameLabel.topAnchor.constraint(equalTo: row.topAnchor, constant: 6))
+            constraints.append(roleLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor))
+            constraints.append(roleLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 1))
+        } else {
+            // Center name vertically when no role/group
+            constraints.append(nameLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor))
+        }
+        
+        NSLayoutConstraint.activate(constraints)
         
         return row
+    }
+    
+    @objc private func editSpeakerAction(_ sender: NSButton) {
+        guard let profileId = sender.identifier?.rawValue else { return }
+        guard let profile = SpeakerEnrollmentManager.shared.profiles.first(where: { $0.id == profileId }) else { return }
+        
+        let alert = NSAlert()
+        alert.messageText = L10n.isFrench ? "Modifier le participant" : "Edit Speaker"
+        alert.informativeText = L10n.isFrench ? "Modifiez les informations du participant." : "Update the speaker's information."
+        
+        let formView = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 110))
+        
+        let nameLabel = NSTextField(labelWithString: L10n.isFrench ? "Nom:" : "Name:")
+        nameLabel.frame = NSRect(x: 0, y: 82, width: 60, height: 20)
+        nameLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let nameField = NSTextField(frame: NSRect(x: 65, y: 80, width: 270, height: 24))
+        nameField.stringValue = profile.name
+        nameField.font = NSFont.systemFont(ofSize: 13)
+        
+        let roleLabel = NSTextField(labelWithString: L10n.isFrench ? "Rôle:" : "Role:")
+        roleLabel.frame = NSRect(x: 0, y: 52, width: 60, height: 20)
+        roleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let roleField = NSTextField(frame: NSRect(x: 65, y: 50, width: 270, height: 24))
+        roleField.stringValue = profile.role
+        roleField.placeholderString = L10n.isFrench ? "ex: Product Manager" : "e.g. Product Manager"
+        roleField.font = NSFont.systemFont(ofSize: 13)
+        
+        let groupLabel = NSTextField(labelWithString: L10n.isFrench ? "Groupe:" : "Group:")
+        groupLabel.frame = NSRect(x: 0, y: 22, width: 60, height: 20)
+        groupLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let groupField = NSTextField(frame: NSRect(x: 65, y: 20, width: 270, height: 24))
+        groupField.stringValue = profile.groupName
+        groupField.placeholderString = L10n.isFrench ? "ex: Marketing" : "e.g. Marketing"
+        groupField.font = NSFont.systemFont(ofSize: 13)
+        
+        formView.addSubview(nameLabel)
+        formView.addSubview(nameField)
+        formView.addSubview(roleLabel)
+        formView.addSubview(roleField)
+        formView.addSubview(groupLabel)
+        formView.addSubview(groupField)
+        
+        alert.accessoryView = formView
+        alert.addButton(withTitle: L10n.isFrench ? "Enregistrer" : "Save")
+        alert.addButton(withTitle: L10n.isFrench ? "Annuler" : "Cancel")
+        alert.window.initialFirstResponder = nameField
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let newName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !newName.isEmpty else { return }
+            let newRole = roleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let newGroup = groupField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            SpeakerEnrollmentManager.shared.updateProfile(id: profileId, name: newName, role: newRole, groupName: newGroup)
+            refreshSpeakerDirectory()
+        }
     }
     
     @objc private func deleteSpeakerAction(_ sender: NSButton) {
@@ -2009,10 +2103,6 @@ private func createHistoryView() -> NSView {
              return
         }
         
-        // Dump audio for debugging
-        let debugPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/suprasonic_enrollment_debug.wav")
-        saveAudioToWav(buffer: buffer, url: debugPath)
-
         Task { @MainActor in
             do {
                 let profile = try await SpeakerEnrollmentManager.shared.enrollSpeaker(
@@ -2031,7 +2121,7 @@ private func createHistoryView() -> NSView {
             } catch {
                 let alert = NSAlert()
                 alert.messageText = L10n.isFrench ? "Échec de l'enregistrement" : "Enrollment Failed"
-                alert.informativeText = error.localizedDescription + "\n\n(Debug audio saved to Downloads/suprasonic_enrollment_debug.wav)"
+                alert.informativeText = error.localizedDescription
                 alert.runModal()
             }
         }
@@ -2535,13 +2625,36 @@ private func createVocabularyView() -> NSView {
         loadMicrophones()
         
         self.center()
-        self.level = .floating
-        self.makeKeyAndOrderFront(nil)
+        
+        // Temporarily switch to regular activation policy to allow keyboard input
+        let previousPolicy = NSApp.activationPolicy()
+        if previousPolicy == .accessory {
+            NSApp.setActivationPolicy(.regular)
+        }
+        
+        // Activate app first, then show window
         NSApp.activate(ignoringOtherApps: true)
         
-        // Ensure it stays on top for a moment to catch attention
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.level = .normal
+        // Use a slight delay to ensure activation completes before showing window
+        DispatchQueue.main.async {
+            self.level = .floating
+            self.makeKeyAndOrderFront(nil)
+            self.orderFrontRegardless()
+            
+            // Reset to normal level after bringing to front
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.level = .normal
+            }
+        }
+        
+        // Restore accessory policy when window closes if needed
+        if previousPolicy == .accessory {
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: self, queue: .main) { [weak self] _ in
+                guard self != nil else { return }
+                if !SettingsManager.shared.showInDock {
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
         }
     }
     
@@ -3151,13 +3264,13 @@ class ModeCardView: NSControl {
         descLabel.translatesAutoresizingMaskIntoConstraints = false
         descLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         descLabel.textColor = .secondaryLabelColor
+        descLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         let stack = NSStackView(views: [iconView, titleLabel, descLabel])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         
         addSubview(stack)
         
@@ -3167,10 +3280,10 @@ class ModeCardView: NSControl {
             bgView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bgView.bottomAnchor.constraint(equalTo: bottomAnchor),
             
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -20),
             
             iconView.heightAnchor.constraint(equalToConstant: 28),
             iconView.widthAnchor.constraint(equalToConstant: 28)

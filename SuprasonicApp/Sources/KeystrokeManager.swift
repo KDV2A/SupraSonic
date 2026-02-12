@@ -4,6 +4,11 @@ import ApplicationServices
 class KeystrokeManager {
     static let shared = KeystrokeManager()
     
+    private var consecutivePasteFailures = 0
+    private let maxConsecutiveFailures = 3
+    
+    var onPasteError: (() -> Void)?
+    
     private init() {}
     
     /// Inserts the given text into the frontmost application.
@@ -39,9 +44,34 @@ class KeystrokeManager {
             
             // 3. Fallback to CGEvent if AppleScript skipped or failed
             if !pasteSucceeded {
-                self.performPasteViaCGEvent()
+                let cgEventSuccess = self.performPasteViaCGEvent()
+                if !cgEventSuccess {
+                    self.handlePasteFailure()
+                } else {
+                    self.consecutivePasteFailures = 0
+                }
+            } else {
+                self.consecutivePasteFailures = 0
             }
         }
+    }
+    
+    private func handlePasteFailure() {
+        consecutivePasteFailures += 1
+        print("⚠️ KeystrokeManager: Paste failure count: \(consecutivePasteFailures)/\(maxConsecutiveFailures)")
+        
+        if consecutivePasteFailures >= maxConsecutiveFailures {
+            print("❌ KeystrokeManager: Multiple paste failures detected, notifying user")
+            consecutivePasteFailures = 0
+            DispatchQueue.main.async {
+                self.onPasteError?()
+            }
+        }
+    }
+    
+    /// Resets the paste failure counter (call after user fixes permissions)
+    func resetPasteFailureCounter() {
+        consecutivePasteFailures = 0
     }
     
     private func performPasteViaAppleScript() -> Bool {
@@ -67,8 +97,16 @@ class KeystrokeManager {
         return false
     }
     
-    private func performPasteViaCGEvent() {
+    @discardableResult
+    private func performPasteViaCGEvent() -> Bool {
         print("🎯 KeystrokeManager: Attempting paste via CGEvent (Accessibility)")
+        
+        // Check if we have accessibility permissions
+        let trusted = AXIsProcessTrusted()
+        if !trusted {
+            print("❌ KeystrokeManager: Accessibility not trusted")
+            return false
+        }
         
         let source = CGEventSource(stateID: .hidSystemState)
         let cmdKey: UInt16 = 0x37 // Left Command
@@ -79,7 +117,7 @@ class KeystrokeManager {
               let vDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
               let vUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else {
             print("❌ KeystrokeManager: Failed to create CGEvents")
-            return
+            return false
         }
         
         vDown.flags = .maskCommand
@@ -90,5 +128,8 @@ class KeystrokeManager {
         vDown.post(tap: .cghidEventTap)
         vUp.post(tap: .cghidEventTap)
         pbtUp.post(tap: .cghidEventTap)
+        
+        print("✅ KeystrokeManager: CGEvent paste executed")
+        return true
     }
 }

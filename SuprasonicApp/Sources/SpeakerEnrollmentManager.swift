@@ -124,41 +124,100 @@ class SpeakerEnrollmentManager: ObservableObject {
             enrollmentProgress = 0
         }
         
+        // Normalize audio to help VAD (Voice Activity Detection)
+        let maxAmp = audioSamples.reduce(0) { max($0, abs($1)) }
+        let scale = maxAmp > 0 ? 0.9 / maxAmp : 1.0
+        let safeScale = min(scale, 100.0)
+        let normalizedSamples = audioSamples.map { $0 * safeScale }
+        
+        print("📊 Enrollment: Audio stats - samples: \(audioSamples.count), maxAmp: \(maxAmp), scale: \(safeScale)")
+        print("📊 Enrollment: Duration: \(Double(audioSamples.count) / 16000.0)s")
+        
+        enrollmentProgress = 0.4
+        
         // Ensure diarizer models are available
         guard TranscriptionManager.shared.diarizerModels != nil else {
             throw EnrollmentError.modelsNotLoaded
         }
         
-        enrollmentProgress = 0.4
+        enrollmentProgress = 0.5
         
-        // Extract embedding using FluidAudio
-        let diarizer = DiarizerManager()
-        diarizer.initialize(models: TranscriptionManager.shared.diarizerModels!)
+        // Use OfflineDiarizerManager for more robust embedding extraction
+        var speakerDB: [String: [Float]]? = nil
+        var lastError: Error?
+        var segmentsFound = 0
         
-        enrollmentProgress = 0.6
-        
-        // Normalize audio to help VAD (Voice Activity Detection)
-        // Boost quiet speech to 0.9 peak amplitude
-        let maxAmp = audioSamples.reduce(0) { max($0, abs($1)) }
-        let scale = maxAmp > 0 ? 0.9 / maxAmp : 1.0
-        // Clamp scale to avoid massive noise amplification if signal is tiny (though silence check prevents that)
-        let safeScale = min(scale, 100.0) 
-        let normalizedSamples = audioSamples.map { $0 * safeScale }
-        
-        print("📊 Enrollment: Normalizing audio. MaxAmp: \(maxAmp) -> scaled by \(safeScale)")
-        
-        // Get the embedding from diarization result
-        let result = try diarizer.performCompleteDiarization(normalizedSamples)
-        
-        print("📊 Enrollment Debug: Segments found: \(result.segments.count)")
-        if let db = result.speakerDatabase {
-            print("📊 Enrollment Debug: Speakers found: \(db.keys.joined(separator: ", "))")
-        } else {
-            print("📊 Enrollment Debug: No speaker database returned")
+        // Attempt 1: Use OfflineDiarizerManager (recommended for most cases)
+        do {
+            print("📊 Enrollment: Attempt 1 - Using OfflineDiarizerManager...")
+            let offlineManager = OfflineDiarizerManager()
+            try await offlineManager.prepareModels()
+            
+            enrollmentProgress = 0.6
+            
+            let result = try await offlineManager.process(audio: normalizedSamples)
+            segmentsFound = result.segments.count
+            print("📊 Enrollment: Offline diarization - Segments: \(segmentsFound)")
+            for (i, seg) in result.segments.prefix(5).enumerated() {
+                print("   Segment \(i): speaker=\(seg.speakerId), start=\(seg.startTimeSeconds)s, end=\(seg.endTimeSeconds)s")
+            }
+            speakerDB = result.speakerDatabase
+            
+            if let db = speakerDB, !db.isEmpty {
+                print("📊 Enrollment Debug: Speakers in DB: \(db.keys.joined(separator: ", "))")
+            } else {
+                print("📊 Enrollment Debug: No speakers in database (segments: \(segmentsFound))")
+            }
+        } catch {
+            print("⚠️ Enrollment: OfflineDiarizerManager failed: \(error)")
+            lastError = error
         }
         
-        guard let speakerDB = result.speakerDatabase, let firstEmbedding = speakerDB.values.first else {
-            print("❌ Enrollment Debug: Embedding extraction failed. Audio length: \(normalizedSamples.count)")
+        enrollmentProgress = 0.7
+        
+        // Fallback: Try streaming DiarizerManager if offline failed
+        if speakerDB == nil || speakerDB?.isEmpty == true {
+            print("📊 Enrollment: Attempt 2 - Fallback to DiarizerManager (streaming)...")
+            
+            let diarizer = DiarizerManager()
+            diarizer.initialize(models: TranscriptionManager.shared.diarizerModels!)
+            
+            do {
+                let result = try diarizer.performCompleteDiarization(normalizedSamples)
+                segmentsFound = result.segments.count
+                print("📊 Enrollment: Streaming diarization - Segments: \(segmentsFound)")
+                speakerDB = result.speakerDatabase
+            } catch {
+                print("⚠️ Enrollment: DiarizerManager failed: \(error)")
+                lastError = error
+            }
+        }
+        
+        // Attempt 3: Try with padded audio
+        if speakerDB == nil || speakerDB?.isEmpty == true {
+            print("📊 Enrollment: Attempt 3 - Adding 1s padding...")
+            let paddingSamples = [Float](repeating: 0.0, count: 16000)
+            let paddedSamples = paddingSamples + normalizedSamples + paddingSamples
+            
+            let diarizer2 = DiarizerManager()
+            diarizer2.initialize(models: TranscriptionManager.shared.diarizerModels!)
+            
+            do {
+                let result2 = try diarizer2.performCompleteDiarization(paddedSamples)
+                segmentsFound = result2.segments.count
+                print("📊 Enrollment: Padded audio - Segments: \(segmentsFound)")
+                speakerDB = result2.speakerDatabase
+            } catch {
+                print("⚠️ Enrollment: Padded attempt failed: \(error)")
+                lastError = error
+            }
+        }
+        
+        guard let finalDB = speakerDB, let firstEmbedding = finalDB.values.first else {
+            print("❌ Enrollment: All attempts failed. Audio length: \(normalizedSamples.count), segments found: \(segmentsFound)")
+            if let err = lastError {
+                print("❌ Enrollment: Last error: \(err)")
+            }
             throw EnrollmentError.embeddingFailed
         }
         
