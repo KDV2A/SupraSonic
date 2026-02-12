@@ -3,6 +3,7 @@ import AVFoundation
 import Carbon.HIToolbox
 import SupraSonicCore
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var statusItem: NSStatusItem!
     private var overlayWindow: OverlayWindow?
@@ -21,19 +22,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     
     // AI Skills State
     private var isLLMMode = false
+    private var capturedSelectedText: String? = nil
+    private var savedVolumeLevel: Int? = nil
     
     private var lastUIUpdate: CFTimeInterval = 0
     // Tracking for consecutive transcriptions
     private var lastTranscriptionTime: Date? = nil
     
     private var setupWindow: SetupWindow?
+    private var meetingDetailWindow: MeetingDetailWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 0. Setup MLX Metal library path (for standalone distribution)
-        if let resourcePath = Bundle.main.resourcePath {
-            setenv("METAL_LIBRARY_PATH", resourcePath, 1)
-        }
-
+        print("🎬 applicationDidFinishLaunching")
+        NSApp.activate(ignoringOtherApps: true)
+        
         // 1. Check if running from DMG (Anti-Translocation)
         let bundlePath = Bundle.main.bundleURL.path
         if bundlePath.contains("/Volumes/") && !bundlePath.contains("/Users/") {
@@ -62,9 +64,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Setup minimal main menu for shortcuts (Copy/Paste)
         setupMainMenu()
         
-        // Listen for hotkey settings changes
-        NotificationCenter.default.addObserver(self, selector: #selector(hotkeySettingsChanged), name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
-        
         // Listen for model selection changes
         NotificationCenter.default.addObserver(self, selector: #selector(onModelSelectionChanged), name: Constants.NotificationNames.modelSelectionChanged, object: nil)
         
@@ -74,6 +73,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Listen for system wake and audio changes
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleWake), name: NSWorkspace.didWakeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAudioConfigChange), name: .AVAudioEngineConfigurationChange, object: nil)
+        
+        // Listen for Meeting Live Transcripts
+        NotificationCenter.default.addObserver(self, selector: #selector(onMeetingTranscriptUpdated(_:)), name: Constants.NotificationNames.meetingTranscriptUpdated, object: nil)
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(hotkeySettingsChanged), name: Constants.NotificationNames.hotkeySettingsChanged, object: nil)
         
         // 3. Check if setup is needed
         if shouldShowSetup() {
@@ -96,126 +100,99 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             return true
         }
         
-        // 2. Check system-level requirements
+        // 2. Developer/Debug Convenience:
+        // If setup is marked complete, assume user knows what they are doing.
+        // We still log warnings but don't force the setup window loop.
+        
         let hasMic = PermissionsManager.shared.checkMicrophonePermission() == .granted
         let hasAccessibility = PermissionsManager.shared.checkAccessibilityPermission()
         let hasModel = ModelManager.shared.hasAnyModel()
-        let isInApplications = Bundle.main.bundleURL.path.hasPrefix("/Applications")
         
-        print("🚀 Onboarding debug: hasMic=\(hasMic), hasAccessibility=\(hasAccessibility), hasModel=\(hasModel), isInApplications=\(isInApplications)")
+        if !hasMic { print("⚠️ App Warning: Missing Microphone Permission (Setup skipped by preference)") }
+        if !hasAccessibility { print("⚠️ App Warning: Missing Accessibility Permission (Setup skipped by preference)") }
+        if !hasModel { print("⚠️ App Warning: Missing ML Model (Setup skipped by preference)") }
         
-        // 3. If everything is OK, check if new mandatory setup steps (like LLM) are missing
-        let llmChoiceMade = UserDefaults.standard.object(forKey: Constants.Keys.llmProvider) != nil
-        
-        if hasMic && hasAccessibility && hasModel && (isInApplications || !Bundle.main.bundleURL.path.contains(".dmg")) && llmChoiceMade {
-            print("🚀 App: All requirements met and LLM choice made. Skipping setup.")
-            return false
-        }
-        
-        // 4. Force setup if critical pieces are missing, even if "completed" before
-        if !hasMic { print("🚀 App: Missing Microphone Permission. Re-showing setup.") }
-        if !hasAccessibility { print("🚀 App: Missing Accessibility Permission. Re-showing setup.") }
-        if !hasModel { print("🚀 App: Missing ML Model. Re-showing setup.") }
-        if !isInApplications && Bundle.main.bundleURL.path.contains(".dmg") { print("🚀 App: App running from DMG. Re-showing setup (Translocation check).") }
-        
-        return true
+        return false
     }
     
+    @MainActor
     private func showSetup() {
         setupWindow = SetupWindow()
         setupWindow?.makeKeyAndOrderFront(nil)
         
-        // Force activation and bring to front
-        NSApp.activate(ignoringOtherApps: true)
-        
-        // Try to hide the Finder window (DMG window) that often covers the app
-        let hideFinderScript = """
-        tell application "Finder"
-            set visible of every process whose name is "Finder" to false
-        end tell
-        """
-        if let script = NSAppleScript(source: hideFinderScript) {
-            var error: NSDictionary?
-            script.executeAndReturnError(&error)
-        }
     }
     
+    @MainActor
     @objc private func onSetupComplete() {
         print("✅ App: Setup complete signal received")
         
-        // 1. Remove observer immediately to prevent any potential double-calls
+        // 1. Remove observer immediately
         NotificationCenter.default.removeObserver(self, name: Constants.NotificationNames.setupComplete, object: nil)
         
         // 2. Mark as completed in UserDefaults
         UserDefaults.standard.set(true, forKey: Constants.Keys.setupCompleted)
         UserDefaults.standard.synchronize()
         
-        // Use a single serial cleanup sequence on main queue
-        DispatchQueue.main.async { [weak self] in
+        // 3. Hide the setup window
+        if let window = setupWindow {
+            window.orderOut(nil)
+        }
+        
+        // 4. Delayed transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             
-            print("🚀 App: Transitioning from Setup to Accessory mode...")
-            
-            // 3. Clean Break: Hide window and disable EVERYTHING before nil'ing
-            // NOTE: Using orderOut(nil) followed by setting to nil (letting ARC handle it)
-            // is safer than calling .close() during an activation policy change. 
-            // AppKit can sometimes trigger double-frees or use-after-free if .close()
-            // is called while the system is still processing window animations or policy shifts.
-            if let window = self.setupWindow {
-                window.animationBehavior = .none
-                window.delegate = nil
-                window.contentView = nil
-                window.orderOut(nil)
-            }
-            
-            // 4. Important: Nil the reference FIRST to let ARC handle it 
-            // instead of calling .close(). This ensures that even if AppKit tries 
-            // to access the window pointer during the policy switch, it's either
-            // clearly null or safely held by the system's autorelease pool.
+            print("🚀 App: Starting transition sequence...")
             self.setupWindow = nil
             
-            // 5. AppKit Lifecycle Safety:
-            // Small delay (0.2s) to let current runloop cycle finish with the window object dead
-            // but BEFORE we switch the app's activation policy. Switching policy via 
-            // NSApp.setActivationPolicy(.accessory) is a heavy operation that resets 
-            // certain AppKit internal states.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                guard let self = self else { return }
-                
-                print("🚀 App: Switching policy and initializing main app...")
+            if SettingsManager.shared.showInDock {
+                NSApp.setActivationPolicy(.regular)
+            } else {
                 NSApp.setActivationPolicy(.accessory)
-                
-                self.setupStatusItem()
-                self.proceedWithApp()
-                
-                // Final re-activation of the status item app
-                NSApp.activate(ignoringOtherApps: true)
-                print("✨ App: Seamless launch complete")
-                
-                // Request: Open Settings (General) automatically
-                self.openSettings()
             }
+            
+            self.setupStatusItem()
+            
+            self.proceedWithApp()
+            
+            NSApp.activate(ignoringOtherApps: true)
+            self.openSettings()
         }
     }
     
     private func proceedWithApp() {
+        print("🚀 App: proceedWithApp started")
+        
         // Initialize Rust Core
-        let state = AppState()
-        self.rustState = state
-        print("🦀 Rust Core Initialized")
-        
-        // Set listener for raw audio data
-        state.setListener(listener: RustAudioListener(delegate: self))
-        
-        // Initialize ML Engine (Parakeet v3 via FluidAudio)
-        Task {
-            do {
-                try await TranscriptionManager.shared.initialize()
-                print("✅ ML Engine (Parakeet v3) Initialized")
-            } catch {
-                print("❌ ML Engine Initialization Failed: \(error)")
+            // Start Rust Core
+            // Initialize AppState
+            print("🚀 App: Initializing AppState...")
+            // Provide path for persistent speaker registry
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let speakerPath = appSupport.appendingPathComponent("SupraSonic/speakers.json").path
+            
+            let state = AppState()
+            self.rustState = state
+            print("🦀 Rust Core Initialized (Speakers: \(speakerPath))")
+            
+            // Set listener for raw audio data
+            state.setListener(listener: RustAudioListener(delegate: self))
+            
+            // Initialize ML Engine (Parakeet v3 via FluidAudio)
+            Task {
+                do {
+                    print("🚀 App: TranscriptionManager.shared.initialize()...")
+                    try await TranscriptionManager.shared.initialize()
+                    print("✅ ML Engine (Parakeet v3) Initialized")
+                    
+                    // Initialize Meeting Manager
+                    print("🚀 App: MeetingManager.shared.setRustState()...")
+                    MeetingManager.shared.setRustState(state)
+                    print("✅ Meeting Manager Initialized")
+                } catch {
+                    print("❌ ML/Meeting initialization failed: \(error)")
+                }
             }
-        }
     
         // Setup global hotkeys
         self.setupHotKeys()
@@ -258,9 +235,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         return true
     }
     
+    @MainActor
     @objc private func onModelSelectionChanged() {
         print("🔄 Settings changed, reinitializing...")
         initializeTranscription()
+    }
+    
+    @MainActor
+    @objc private func onMeetingTranscriptUpdated(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let text = userInfo["text"] as? String else { return }
+        
+        let speaker = userInfo["speaker"] as? String // Optional
+        
+        self.overlayWindow?.updateTranscript(text: text, speaker: speaker)
+    }
+    
+    @objc func importAudioFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        panel.prompt = L10n.isFrench ? "Importer" : "Import"
+        panel.message = L10n.isFrench ? "Selectionnez un fichier audio (mp3, wav, m4a)" : "Select an audio file (mp3, wav, m4a)"
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                Task {
+                    // Show Details Window immediately (it works well as a progress viewer since it observes currentMeeting)
+                    // We need to trigger the import
+                    await MeetingManager.shared.importMeeting(from: url)
+                    
+                    // After import starts/finishes, ensure we open the window to see it
+                    await MainActor.run {
+                        self.openMeetingDetails(for: MeetingManager.shared.currentMeeting)
+                    }
+                }
+            }
+        }
+    }
+    
+    
+    
+    @MainActor
+    func openMeetingDetails(for meeting: Meeting?) {
+        guard let meeting = meeting else { return }
+        
+        // If window exists, close it (simple single-window policy)
+        if let existing = meetingDetailWindow {
+            existing.close()
+        }
+        
+        let window = MeetingDetailWindow(meeting: meeting)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        window.isReleasedWhenClosed = false // Keep alive via our reference
+        self.meetingDetailWindow = window
     }
     
     private func initializeTranscription() {
@@ -295,6 +326,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
+    @MainActor
     @objc private func hotkeySettingsChanged() {
         // Re-setup hotkeys when settings change
         removeHotkeyMonitors()
@@ -355,6 +387,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
+    @MainActor
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
@@ -405,6 +438,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         menu.addItem(NSMenuItem.separator())
         
+        let meetingItem = NSMenuItem(title: L10n.isFrench ? "Démarrer une réunion" : "Start Meeting", action: #selector(toggleMeeting), keyEquivalent: "m")
+        meetingItem.target = self
+        meetingItem.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(meetingItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         let settingsItem = NSMenuItem(title: L10n.current.settings, action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -421,12 +461,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         updateMicrophoneMenu()
     }
     
+    @MainActor
     @objc func openSettings() {
         settingsWindow?.show()
     }
     
+    @MainActor
     @objc func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+    
+    @MainActor
+    @objc func toggleMeeting() {
+        if MeetingManager.shared.isMeetingActive {
+            MeetingManager.shared.stopMeeting()
+            DispatchQueue.main.async {
+                self.overlayWindow?.hide()
+            }
+        } else {
+            MeetingManager.shared.startMeeting(title: "Quick Meeting")
+            DispatchQueue.main.async {
+                self.overlayWindow?.setMeetingMode(true)
+                self.overlayWindow?.show()
+            }
+        }
+        updateStatusMenu()
+    }
+    
+    private func updateStatusMenu() {
+        guard let menu = statusItem.menu else { return }
+        
+        // Find or create Meeting item
+        if let meetingItem = menu.items.first(where: { $0.action == #selector(toggleMeeting) }) {
+            meetingItem.title = MeetingManager.shared.isMeetingActive 
+                ? (L10n.isFrench ? "Terminer la réunion" : "End Meeting")
+                : (L10n.isFrench ? "Démarrer une réunion" : "Start Meeting")
+        }
+        
+        // Remove old participant items if any
+        menu.items.removeAll(where: { $0.action == #selector(showParticipantEnrollment) })
+        
+        if MeetingManager.shared.isMeetingActive {
+            let participantItem = NSMenuItem(title: L10n.isFrench ? "Enregistrer un participant..." : "Register Participant...", action: #selector(showParticipantEnrollment), keyEquivalent: "p")
+            participantItem.target = self
+            participantItem.keyEquivalentModifierMask = [.command, .option]
+            
+            // Insert after meeting item
+            if let idx = menu.items.firstIndex(where: { $0.action == #selector(toggleMeeting) }) {
+                menu.insertItem(participantItem, at: idx + 1)
+            }
+        }
+    }
+
+    @MainActor
+    @objc func showParticipantEnrollment() {
+        // Enrollment is now handled in the Réunions tab of Settings
+        openSettings()
+        // The SettingsWindow will show the enrollment UI directly
     }
     
     private func updateMicrophoneMenu() {
@@ -448,6 +539,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
+    @MainActor
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
         if let device = sender.representedObject as? AudioDeviceManager.AudioDevice {
             AudioDeviceManager.shared.setInputDevice(device)
@@ -455,6 +547,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
     
+    @MainActor
     func setupHotKeys() {
         let settings = SettingsManager.shared
         let mainKeyCode = settings.pushToTalkKey
@@ -589,12 +682,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         isRecording = true
         
+        // Capture any selected text from the active app BEFORE we start recording
+        capturedSelectedText = getSelectedText()
+        if let selected = capturedSelectedText {
+            print("📎 App: Captured selected text (\(selected.count) chars): \(selected.prefix(80))...")
+        }
+        
         // Mute system sound if enabled
         if SettingsManager.shared.muteSystemSoundDuringRecording {
-            runAppleScript("set volume with output muted")
+            print("🔇 Muting system audio...")
+            // Save current volume and mute
+            savedVolumeLevel = getCurrentVolume()
+            runAppleScript("set volume output volume 0")
         }
         
         DispatchQueue.main.async {
+            self.overlayWindow?.setMeetingMode(false) // Default to regular dictation
             self.overlayWindow?.show()
         }
         
@@ -618,7 +721,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         // Unmute system sound if enabled
         if SettingsManager.shared.muteSystemSoundDuringRecording {
-            runAppleScript("set volume without output muted")
+            let restoreLevel = savedVolumeLevel ?? 50
+            print("🔊 Restoring system audio to \(restoreLevel)%")
+            runAppleScript("set volume output volume \(restoreLevel)")
+            savedVolumeLevel = nil
         }
         
         DispatchQueue.main.async {
@@ -634,35 +740,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         KeystrokeManager.shared.insertText(text, consecutive: isConsecutive)
     }
-}
 
-// MARK: - Rust Integration Helpers
-
-protocol RustAudioDelegate: AnyObject {
-    func handleAudioBuffer(_ audioData: [Float])
-    func handleAudioLevel(_ level: Float)
-}
-
-class RustAudioListener: TranscriptionListener {
-    weak var delegate: RustAudioDelegate?
+    // MARK: - Rust Integration Helpers
     
-    init(delegate: RustAudioDelegate) {
-        self.delegate = delegate
-    }
-    
-    func onAudioData(audioData: [Float]) {
-        print("🎙️ Rust Audio Captured: \(audioData.count) samples")
-        self.delegate?.handleAudioBuffer(audioData)
-    }
-    
-    func onLevelChanged(level: Float) {
-        self.delegate?.handleAudioLevel(level)
-    }
-}
-
-extension AppDelegate: RustAudioDelegate {
-    func handleAudioBuffer(_ audioData: [Float]) {
-        Task {
+    nonisolated func handleAudioBuffer(_ audioData: [Float]) {
+        Task { @MainActor in
             do {
                 print("🧠 App: Starting Parakeet v3 inference...")
                 let text = try await TranscriptionManager.shared.transcribe(audioSamples: audioData)
@@ -671,55 +753,60 @@ extension AppDelegate: RustAudioDelegate {
                 if !text.isEmpty {
                     let finalOutput = text
                     
-                    /*
-                    // Multiple AI Skills Detection: Hiding for Standby Mode
-                    let skills = SettingsManager.shared.aiSkills
-                    let transcribedLower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                    var activePrompt = SettingsManager.shared.aiAssistantPrompt // Fallback
-                    
-                    for skill in skills {
-                        let trigger = skill.trigger.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trigger.isEmpty { continue }
+                    if MeetingManager.shared.isMeetingActive {
+                        // Streaming chunks are provisional (Partial)
+                        MeetingManager.shared.handleSegmentProduced(finalOutput, isFinal: false)
+                    } else {
+                        SettingsManager.shared.addToHistory(finalOutput)
                         
-                        // Check if the transcription starts with the trigger (Modern UX requirement)
-                        if transcribedLower.hasPrefix(trigger) {
-                            print("🎯 Voice Skill Detected: \(skill.name)")
-                            shouldProcessWithAI = true
-                            activePrompt = skill.prompt
+                        // Check for AI Skills Triggers
+                        let skills = SettingsManager.shared.aiSkills
+                        // Robust trigger check: trim whitespace and common leading punctuation
+                        let cleanText = finalOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(in: CharacterSet(charactersIn: ".,!?- "))
+                        let lowerText = cleanText.lowercased()
+                        
+                        if let triggeredSkill = skills.first(where: { lowerText.starts(with: $0.trigger.lowercased()) }) {
+                            print("🤖 App: AI Skill Triggered: \(triggeredSkill.name)")
                             
-                            // Remove the trigger word/phrase from the final output
-                            if let range = text.range(of: trigger, options: [.caseInsensitive, .anchored]) {
-                                finalOutput = text.replacingCharacters(in: range, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-                                
-                                // Clean up leading punctuation/spaces if any (e.g. "Traduction, Bonjour" -> "Bonjour")
-                                while finalOutput.hasPrefix(",") || finalOutput.hasPrefix(":") || finalOutput.hasPrefix(" ") {
-                                    finalOutput.removeFirst()
-                                    finalOutput = finalOutput.trimmingCharacters(in: .whitespaces)
+                            // 1. Show Thinking state in overlay
+                            self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Assistant IA: Réflexion..." : "AI Assistant: Thinking...")
+                            self.overlayWindow?.show()
+                            
+                            // 2. Extract input text (strip trigger)
+                            let trigger = triggeredSkill.trigger.lowercased()
+                            var inputText = finalOutput
+                            if let range = inputText.range(of: trigger, options: [.caseInsensitive]) {
+                                inputText.removeSubrange(range)
+                            }
+                            inputText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            
+                            // 3. Call LLMManager in background
+                            let selectedContext = self.capturedSelectedText
+                            self.capturedSelectedText = nil  // Clear after use
+                            Task {
+                                do {
+                                    let result = try await LLMManager.shared.processSkill(skill: triggeredSkill, text: inputText, selectedText: selectedContext)
+                                    print("🤖 App: AI Skill Result received")
+                                    
+                                    await MainActor.run {
+                                        self.overlayWindow?.hide()
+                                        self.handleTranscriptionResult(result)
+                                    }
+                                } catch {
+                                    print("❌ App: AI Skill failed: \(error)")
+                                    await MainActor.run {
+                                        self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Erreur Assistant IA" : "AI Assistant Error")
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                            self.overlayWindow?.hide()
+                                        }
+                                    }
                                 }
                             }
-                            break // Use first matching skill
+                        } else {
+                            // Regular dictation
+                            self.handleTranscriptionResult(finalOutput)
                         }
-                    }
-                    
-                    if shouldProcessWithAI {
-                        print("🤖 App: Routing to AI Skill for processing...")
-                        do {
-                            if await !LLMManager.shared.isReady {
-                                try await LLMManager.shared.initialize()
-                            }
-                            
-                            finalOutput = try await LLMManager.shared.generateResponse(instruction: activePrompt, text: finalOutput)
-                            print("✨ LLM Result: \(finalOutput)")
-                        } catch {
-                            print("❌ LLM processing failed: \(error)")
-                        }
-                        self.isLLMMode = false
-                    }
-                    */
-                    
-                    DispatchQueue.main.async { [weak self] in
-                        SettingsManager.shared.addToHistory(finalOutput)
-                        self?.handleTranscriptionResult(finalOutput)
                     }
                 }
             } catch {
@@ -728,9 +815,9 @@ extension AppDelegate: RustAudioDelegate {
         }
     }
     
-    func handleAudioLevel(_ level: Float) {
-        DispatchQueue.main.async { [weak self] in
-            self?.overlayWindow?.updateLevel(level)
+    nonisolated func handleAudioLevel(_ level: Float) {
+        Task { @MainActor in
+            self.overlayWindow?.updateLevel(level)
         }
     }
     
@@ -738,7 +825,21 @@ extension AppDelegate: RustAudioDelegate {
         if let script = NSAppleScript(source: source) {
             var error: NSDictionary?
             script.executeAndReturnError(&error)
+            if let error = error {
+                print("❌ AppleScript error: \(error)")
+            }
+        } else {
+            print("❌ AppleScript: Failed to create script from: \(source)")
         }
+    }
+    
+    private func getCurrentVolume() -> Int {
+        let script = NSAppleScript(source: "output volume of (get volume settings)")
+        var error: NSDictionary?
+        if let result = script?.executeAndReturnError(&error) {
+            return Int(result.int32Value)
+        }
+        return 50 // Default fallback
     }
     
     private func setupMainMenu() {
@@ -772,5 +873,100 @@ extension AppDelegate: RustAudioDelegate {
         
         NSApp.mainMenu = mainMenu
     }
+    
+    // MARK: - Selected Text Capture
+    
+    /// Captures the currently selected text from the frontmost application.
+    /// Uses clipboard-based approach: saves clipboard → simulates Cmd+C → reads selection → restores clipboard.
+    /// Returns nil if no text is selected.
+    private func getSelectedText() -> String? {
+        let pasteboard = NSPasteboard.general
+        
+        // 1. Save current clipboard contents
+        let savedChangeCount = pasteboard.changeCount
+        let savedItems = pasteboard.pasteboardItems?.compactMap { item -> [String: Data]? in
+            var dict = [String: Data]()
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    dict[type.rawValue] = data
+                }
+            }
+            return dict.isEmpty ? nil : dict
+        } ?? []
+        
+        // 2. Simulate Cmd+C to copy the selection
+        let source = CGEventSource(stateID: .hidSystemState)
+        let cDown = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: true) // 'c' key
+        let cUp = CGEvent(keyboardEventSource: source, virtualKey: 0x08, keyDown: false)
+        cDown?.flags = .maskCommand
+        cUp?.flags = .maskCommand
+        cDown?.post(tap: .cghidEventTap)
+        cUp?.post(tap: .cghidEventTap)
+        
+        // 3. Wait briefly for the clipboard to update
+        Thread.sleep(forTimeInterval: 0.1)
+        
+        // 4. Read the new clipboard content
+        var selectedText: String? = nil
+        if pasteboard.changeCount != savedChangeCount {
+            selectedText = pasteboard.string(forType: .string)
+        }
+        
+        // 5. Restore original clipboard
+        pasteboard.clearContents()
+        for itemDict in savedItems {
+            let item = NSPasteboardItem()
+            for (typeString, data) in itemDict {
+                item.setData(data, forType: NSPasteboard.PasteboardType(rawValue: typeString))
+            }
+            pasteboard.writeObjects([item])
+        }
+        
+        // 6. Validate and return
+        guard let text = selectedText, !text.isEmpty else {
+            return nil
+        }
+        
+        // Truncate very long selections to avoid exceeding LLM token limits
+        let maxLength = 4000
+        if text.count > maxLength {
+            return String(text.prefix(maxLength)) + "\n[... truncated]"
+        }
+        
+        return text
+    }
 }
+
+// MARK: - Rust Integration Helpers
+
+protocol RustAudioDelegate: AnyObject {
+    func handleAudioBuffer(_ audioData: [Float])
+    func handleAudioLevel(_ level: Float)
+}
+
+class RustAudioListener: TranscriptionListener {
+    weak var delegate: RustAudioDelegate?
+    
+    init(delegate: RustAudioDelegate) {
+        self.delegate = delegate
+    }
+    
+    func onAudioData(audioData: [Float]) {
+        print("🎙️ Rust Audio Captured: \(audioData.count) samples")
+        
+        Task { @MainActor in
+            if MeetingManager.shared.isMeetingActive {
+                MeetingManager.shared.handleAudioBuffer(audioData)
+            }
+        }
+        
+        self.delegate?.handleAudioBuffer(audioData)
+    }
+    
+    func onLevelChanged(level: Float) {
+        self.delegate?.handleAudioLevel(level)
+    }
+}
+
+extension AppDelegate: RustAudioDelegate {}
 

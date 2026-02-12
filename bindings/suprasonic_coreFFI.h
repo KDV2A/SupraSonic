@@ -251,6 +251,29 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER_METHOD0
+typedef void (*UniffiCallbackInterfaceTranscriptionListenerMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER_METHOD1
+typedef void (*UniffiCallbackInterfaceTranscriptionListenerMethod1)(uint64_t, float, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_TRANSCRIPTION_LISTENER
+typedef struct UniffiVTableCallbackInterfaceTranscriptionListener {
+    UniffiCallbackInterfaceTranscriptionListenerMethod0 _Nonnull onAudioData;
+    UniffiCallbackInterfaceTranscriptionListenerMethod1 _Nonnull onLevelChanged;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceTranscriptionListener;
+
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_CLONE_APPSTATE
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_CLONE_APPSTATE
 void*_Nonnull uniffi_suprasonic_core_fn_clone_appstate(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -267,6 +290,16 @@ void*_Nonnull uniffi_suprasonic_core_fn_constructor_appstate_new(RustCallStatus 
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_FLUSH
+void uniffi_suprasonic_core_fn_method_appstate_flush(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_SET_LISTENER
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_SET_LISTENER
+void uniffi_suprasonic_core_fn_method_appstate_set_listener(void*_Nonnull ptr, uint64_t listener, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_START_RECORDING
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_START_RECORDING
 void uniffi_suprasonic_core_fn_method_appstate_start_recording(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -275,6 +308,11 @@ void uniffi_suprasonic_core_fn_method_appstate_start_recording(void*_Nonnull ptr
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_STOP_RECORDING
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_STOP_RECORDING
 void uniffi_suprasonic_core_fn_method_appstate_stop_recording(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_INIT_CALLBACK_VTABLE_TRANSCRIPTIONLISTENER
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_INIT_CALLBACK_VTABLE_TRANSCRIPTIONLISTENER
+void uniffi_suprasonic_core_fn_init_callback_vtable_transcriptionlistener(UniffiVTableCallbackInterfaceTranscriptionListener* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_SUPRASONIC_CORE_RUSTBUFFER_ALLOC
@@ -557,6 +595,18 @@ void ffi_suprasonic_core_rust_future_free_void(uint64_t handle
 void ffi_suprasonic_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_FLUSH
+uint16_t uniffi_suprasonic_core_checksum_method_appstate_flush(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_SET_LISTENER
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_SET_LISTENER
+uint16_t uniffi_suprasonic_core_checksum_method_appstate_set_listener(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_START_RECORDING
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_START_RECORDING
 uint16_t uniffi_suprasonic_core_checksum_method_appstate_start_recording(void
@@ -572,6 +622,18 @@ uint16_t uniffi_suprasonic_core_checksum_method_appstate_stop_recording(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_CONSTRUCTOR_APPSTATE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_CONSTRUCTOR_APPSTATE_NEW
 uint16_t uniffi_suprasonic_core_checksum_constructor_appstate_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_TRANSCRIPTIONLISTENER_ON_AUDIO_DATA
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_TRANSCRIPTIONLISTENER_ON_AUDIO_DATA
+uint16_t uniffi_suprasonic_core_checksum_method_transcriptionlistener_on_audio_data(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_TRANSCRIPTIONLISTENER_ON_LEVEL_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_TRANSCRIPTIONLISTENER_ON_LEVEL_CHANGED
+uint16_t uniffi_suprasonic_core_checksum_method_transcriptionlistener_on_level_changed(void
     
 );
 #endif

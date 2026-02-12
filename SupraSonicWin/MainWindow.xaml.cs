@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using SupraSonicWin.Native;
 using SupraSonicWin.Helpers;
 using SupraSonicWin.Models;
@@ -61,9 +62,6 @@ namespace SupraSonicWin
             {
                 Debug.WriteLine($"❌ Setup error: {ex.Message}");
             }
-        }
-
-                ContentFrame.Navigate(typeof(SettingsPage));
         }
 
         private void OnAIHotkeyPressed()
@@ -155,9 +153,48 @@ namespace SupraSonicWin
                 
                 if (!string.IsNullOrEmpty(result))
                 {
-                    if (m_isAIMode)
+                    // Check for AI Skills Triggers (voice-activated)
+                    var skills = SettingsManager.Shared.AISkills;
+                    
+                    // Robust trigger check: trim whitespace and common leading punctuation
+                    string cleanText = result.Trim();
+                    cleanText = cleanText.TrimStart('.', ',', '!', '?', '-', ' ');
+                    string lowerText = cleanText.ToLowerInvariant();
+                    
+                    var triggeredSkill = skills.FirstOrDefault(s => 
+                        !string.IsNullOrEmpty(s.Trigger) && 
+                        lowerText.StartsWith(s.Trigger.ToLowerInvariant()));
+                    
+                    if (triggeredSkill != null)
                     {
-                        // Transform via LLM
+                        Debug.WriteLine($"🤖 App: AI Skill Triggered: {triggeredSkill.Name}");
+                        
+                        // 1. Extract input text (strip trigger word)
+                        string trigger = triggeredSkill.Trigger.ToLowerInvariant();
+                        string inputText = result;
+                        int triggerIdx = inputText.ToLowerInvariant().IndexOf(trigger);
+                        if (triggerIdx >= 0)
+                        {
+                            inputText = inputText.Substring(triggerIdx + trigger.Length);
+                        }
+                        inputText = inputText.Trim();
+                        
+                        // 2. Call LLM with the skill's prompt
+                        try
+                        {
+                            string aiResult = await LLMManager.Shared.ProcessSkill(triggeredSkill, inputText);
+                            Debug.WriteLine($"🤖 App: AI Skill Result received");
+                            result = aiResult;
+                        }
+                        catch (Exception llmEx)
+                        {
+                            Debug.WriteLine($"❌ App: AI Skill failed: {llmEx.Message}");
+                            // On LLM failure, fall back to raw transcription
+                        }
+                    }
+                    else if (m_isAIMode)
+                    {
+                        // AI hotkey mode: Transform via LLM with default prompt
                         result = await LLMManager.Shared.GenerateResponse(result);
                     }
 

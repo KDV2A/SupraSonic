@@ -290,6 +290,11 @@ void*_Nonnull uniffi_suprasonic_core_fn_constructor_appstate_new(RustCallStatus 
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_FLUSH
+void uniffi_suprasonic_core_fn_method_appstate_flush(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_SET_LISTENER
 #define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_FN_METHOD_APPSTATE_SET_LISTENER
 void uniffi_suprasonic_core_fn_method_appstate_set_listener(void*_Nonnull ptr, uint64_t listener, RustCallStatus *_Nonnull out_status
@@ -588,6 +593,12 @@ void ffi_suprasonic_core_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_SUPRASONIC_CORE_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_SUPRASONIC_CORE_RUST_FUTURE_COMPLETE_VOID
 void ffi_suprasonic_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_FLUSH
+uint16_t uniffi_suprasonic_core_checksum_method_appstate_flush(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SUPRASONIC_CORE_CHECKSUM_METHOD_APPSTATE_SET_LISTENER

@@ -5,9 +5,17 @@ import AVFoundation
 class TranscriptionManager: ObservableObject {
     static let shared = TranscriptionManager()
     
-    private var fluidAsr: AsrManager?
+    // Core Engine
+    private var stream: AsyncThrowingStream<String, Error>?
+    private var continuation: AsyncThrowingStream<String, Error>.Continuation?
+    private var asrManager: AsrManager?
     private var currentLanguage: String = "fr"
     
+    // Backward compatibility for preWarm and transcribe
+    private var fluidAsr: AsrManager? { return asrManager }
+    
+    // Diarization
+    private(set) var diarizerModels: DiarizerModels?
     @Published var isLoading = false
     @Published var isReady = false
     @Published var progress: Double = 0
@@ -91,7 +99,6 @@ class TranscriptionManager: ObservableObject {
                 
                 print("📂 TranscriptionManager: Download complete. Migrating to SupraSonic folder...")
                 statusMessage = L10n.isFrench ? "Organisation des fichiers..." : "Organizing files..."
-                progress = 0.8
                 // Immediately migrate to SupraSonic folder and CLEAN UP FluidAudio
                 try migrateModelToSupraSonic()
                 
@@ -113,11 +120,11 @@ class TranscriptionManager: ObservableObject {
             statusMessage = L10n.isFrench ? "Finalisation..." : "Finalizing..."
             progress = 0.96
             
-            // Pre-warm the model
             let dummySamples = [Float](repeating: 0, count: 1600)
             _ = try? await asrManager.transcribe(dummySamples)
             
-            fluidAsr = asrManager
+            // fluidAsr is a computed property, no need to assign
+            self.asrManager = asrManager
             isReady = true
             isLoading = false
             statusMessage = L10n.isFrench ? "Prêt" : "Ready"
@@ -134,7 +141,40 @@ class TranscriptionManager: ObservableObject {
             throw error
         }
     }
-
+    
+    // MARK: - Diarization
+    
+    func downloadDiarizerModels() async throws {
+        guard diarizerModels == nil else { return }
+        
+        await MainActor.run {
+            self.progress = 0.0
+            self.statusMessage = L10n.isFrench ? "Téléchargement modèles diarisation..." : "Downloading diarization models..."
+            self.isLoading = true
+        }
+        
+        do {
+            print("👯‍♀️ TranscriptionManager: Downloading Diarizer models...")
+            // The library handles downloading if needed
+            let models = try await DiarizerModels.downloadIfNeeded()
+            self.diarizerModels = models
+            print("✅ TranscriptionManager: Diarizer models ready")
+            
+            await MainActor.run {
+                self.progress = 1.0
+                self.statusMessage = L10n.isFrench ? "Prêt" : "Ready"
+                self.isLoading = false
+            }
+        } catch {
+            print("❌ TranscriptionManager: Failed to download diarizer models: \(error)")
+            await MainActor.run {
+                self.statusMessage = L10n.isFrench ? "Erreur téléchargement" : "Download error"
+                self.isLoading = false
+            }
+            throw error
+        }
+    }
+    
     /// Pre-warm the engine (e.g., after system wake)
     func preWarm() {
         guard isReady, let fluidAsr = fluidAsr else { return }

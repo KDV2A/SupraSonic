@@ -59,15 +59,6 @@ if [ -d "$BUNDLE_RESOURCES" ]; then
     cp -r "$BUNDLE_RESOURCES" "$RESOURCES_DIR/"
 fi
 
-# 5.5 Copy MLX Metal shaders (ONLY if needed for AI Skills - currently in Standby)
-# MLX looks for "mlx.metallib" in the same directory as the binary (MacOS/)
-# We disable this for the test build to keep the DMG light (~15MB instead of 77MB)
-# MLX_METALLIB="/Users/kent/Library/Python/3.9/lib/python/site-packages/mlx/lib/mlx.metallib"
-# if [ -f "$MLX_METALLIB" ]; then
-#     echo "💎 Copying MLX Metal shaders to MacOS dir..."
-#     cp "$MLX_METALLIB" "$MACOS_DIR/mlx.metallib"
-# fi
-
 # 6. Copy Rust dylib
 echo "🦀 Copying Rust core library..."
 cp "$SCRIPT_DIR/SupraSonicApp/Libs/libsuprasonic_core.dylib" "$MACOS_DIR/"
@@ -78,9 +69,23 @@ echo "✂️ Stripping binaries..."
 strip -x "$MACOS_DIR/SupraSonicApp"
 strip -x "$MACOS_DIR/libsuprasonic_core.dylib"
 
-# 8. Sign the app (ad-hoc signing for local testing)
+# 7.5 Fix dylib reference (Change from absolute to @executable_path)
+echo "🔗 Fixing library reference path..."
+# Use install_name_tool to change the ID of the dylib and the reference in the binary
+install_name_tool -id "@executable_path/libsuprasonic_core.dylib" "$MACOS_DIR/libsuprasonic_core.dylib"
+install_name_tool -change "/Users/kent/Desktop/SupraSonic/target/release/deps/libsuprasonic_core.dylib" "@executable_path/libsuprasonic_core.dylib" "$MACOS_DIR/SupraSonicApp"
+
+# 8. Sign the components individually first
+echo "🔐 Signing components..."
+codesign --force --sign - "$MACOS_DIR/libsuprasonic_core.dylib"
+
+# 9. Sign the app (ad-hoc signing for local testing)
 echo "🔐 Signing app (ad-hoc)..."
-codesign --force --deep --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
+codesign --force --sign - --entitlements "$SCRIPT_DIR/SupraSonicApp/SupraSonicApp.entitlements" "$APP_DIR"
+
+# 10. Remove quarantine attribute (fixes translocation issues for local testing)
+echo "🛡️ Removing quarantine attribute..."
+xattr -rc "$APP_DIR" || true
 
 echo ""
 echo "✅ App bundle created: $APP_DIR"

@@ -458,6 +458,8 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 public protocol AppStateProtocol : AnyObject {
     
+    func flush() throws 
+    
     func setListener(listener: TranscriptionListener) 
     
     func startRecording() throws 
@@ -522,6 +524,12 @@ public convenience init() {
 
     
 
+    
+open func flush()throws  {try rustCallWithError(FfiConverterTypeSupraSonicError.lift) {
+    uniffi_suprasonic_core_fn_method_appstate_flush(self.uniffiClonePointer(),$0
+    )
+}
+}
     
 open func setListener(listener: TranscriptionListener) {try! rustCall() {
     uniffi_suprasonic_core_fn_method_appstate_set_listener(self.uniffiClonePointer(),
@@ -851,6 +859,9 @@ private var initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_suprasonic_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_suprasonic_core_checksum_method_appstate_flush() != 38236) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_suprasonic_core_checksum_method_appstate_set_listener() != 34181) {
         return InitializationResult.apiChecksumMismatch

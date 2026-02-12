@@ -5,6 +5,11 @@ class OverlayWindow: NSWindow {
     private var contentBox: NSBox!
     private var waveformView: WaveformView!
     private var label: NSTextField!
+    private var transcriptLabel: NSTextField!
+    
+    private var isExpanded: Bool = false
+    private var baseHeight: CGFloat = 50
+    private var expandedHeight: CGFloat = 140
     
     init() {
         // Dynamic Island style: pill at top center of screen
@@ -41,7 +46,7 @@ class OverlayWindow: NSWindow {
         contentBox.fillColor = NSColor.black.withAlphaComponent(0.9)
         contentBox.borderColor = .clear
         contentBox.borderWidth = 0
-        contentBox.cornerRadius = frame.height / 2
+        contentBox.cornerRadius = baseHeight / 2
         contentBox.contentViewMargins = .zero
         
         // Label
@@ -53,13 +58,78 @@ class OverlayWindow: NSWindow {
         // Waveform view
         waveformView = WaveformView(frame: NSRect(x: 120, y: 10, width: frame.width - 140, height: frame.height - 20))
         
+        // Transcript Label (Hidden by default)
+        transcriptLabel = NSTextField(wrappingLabelWithString: "")
+        transcriptLabel.font = NSFont.systemFont(ofSize: 14, weight: .medium)
+        transcriptLabel.textColor = .white
+        transcriptLabel.backgroundColor = .clear
+        transcriptLabel.maximumNumberOfLines = 3
+        transcriptLabel.lineBreakMode = .byTruncatingTail
+        transcriptLabel.cell?.backgroundStyle = .emphasized
+        transcriptLabel.frame = NSRect(x: 20, y: 10, width: frame.width - 40, height: 80)
+        transcriptLabel.alphaValue = 0
+        
         contentBox.addSubview(label)
         contentBox.addSubview(waveformView)
+        contentBox.addSubview(transcriptLabel)
+        
         contentView?.addSubview(contentBox)
+    }
+    
+    func updateStatusLabel(_ text: String) {
+        label.stringValue = text
     }
     
     func updateLevel(_ level: Float) {
         waveformView.addLevel(level)
+    }
+    
+    func updateTranscript(text: String, speaker: String?) {
+        let prefix = speaker != nil ? "\(speaker!): " : ""
+        transcriptLabel.stringValue = "\(prefix)\(text)"
+        
+        if !isExpanded && !text.isEmpty {
+            animateExpansion(true)
+        }
+    }
+    
+    func setMeetingMode(_ active: Bool) {
+        label.stringValue = active ? (L10n.isFrench ? "Réunion..." : "Meeting...") : l.recording
+        contentBox.fillColor = active ? NSColor.systemBlue.withAlphaComponent(0.9) : NSColor.black.withAlphaComponent(0.9)
+        
+        if !active && isExpanded {
+            animateExpansion(false)
+        }
+    }
+    
+    private func animateExpansion(_ expand: Bool) {
+        isExpanded = expand
+        let targetHeight = expand ? expandedHeight : baseHeight
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            
+            // Animate Frame
+            var newFrame = self.frame
+            newFrame.size.height = targetHeight
+            // Keep top position fixed (grow down)
+            newFrame.origin.y = self.frame.maxY - targetHeight
+            
+            self.animator().setFrame(newFrame, display: true)
+            self.contentBox.animator().frame = NSRect(x: 0, y: 0, width: frame.width, height: targetHeight)
+            
+            // Adjust elements
+            if expand {
+                self.waveformView.animator().frame = NSRect(x: 120, y: targetHeight - 40, width: frame.width - 140, height: 30)
+                self.label.animator().frame = NSRect(x: 20, y: targetHeight - 35, width: 100, height: 20)
+                self.transcriptLabel.animator().alphaValue = 1
+            } else {
+                self.waveformView.animator().frame = NSRect(x: 120, y: 10, width: frame.width - 140, height: 30)
+                self.label.animator().frame = NSRect(x: 20, y: 15, width: 100, height: 20)
+                self.transcriptLabel.animator().alphaValue = 0
+            }
+        }
     }
     
     func show() {

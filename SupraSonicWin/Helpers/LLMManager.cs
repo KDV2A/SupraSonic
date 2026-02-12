@@ -38,6 +38,28 @@ namespace SupraSonicWin.Helpers
             };
         }
 
+        /// <summary>
+        /// Processes a specific AI skill: sends the text to the LLM using the skill's prompt.
+        /// </summary>
+        public async Task<string> ProcessSkill(AISkill skill, string text)
+        {
+            LLMProvider provider = SettingsManager.Shared.LLMProvider;
+            if (provider == LLMProvider.None)
+                throw new Exception("No AI Provider configured");
+
+            string instruction = skill.Prompt;
+            Debug.WriteLine($"🤖 LLM: Processing skill '{skill.Name}' with provider {provider}");
+
+            return provider switch
+            {
+                LLMProvider.Google => await GenerateGeminiResponse(text, instruction),
+                LLMProvider.OpenAI => await GenerateOpenAIResponse(text, instruction),
+                LLMProvider.Anthropic => await GenerateAnthropicResponse(text, instruction),
+                LLMProvider.Local => await GenerateLocalResponse(text, instruction),
+                _ => throw new Exception("Unknown provider")
+            };
+        }
+
         public async Task InitializeLocalAsync(string modelPath)
         {
             if (m_localWorker == null)

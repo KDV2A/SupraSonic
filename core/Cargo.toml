@@ -14,10 +14,13 @@ tracing = "0.1"
 crossbeam-channel = "0.5"
 uniffi = { version = "0.28", features = ["cli"] }
 thiserror = "1.0"
-rubato = { version = "1.0.1", features = ["fft_resampler"] }
+rubato = "0.14.0"
 tracing-subscriber = "0.3.22"
 audioadapter = "2.0"
 audioadapter-buffers = "2.0"
+ringbuf = "0.4.8"
+serde_json = "1.0.149"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }

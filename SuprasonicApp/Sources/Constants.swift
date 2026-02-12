@@ -19,9 +19,57 @@ struct Constants {
     static let defaultAISkillPrompt = "Tu es un traducteur Français-Anglais professionnel, traduis l’input sans commentaires ni formatage. Input:"
     
     // Cloud Model Names (for display and API calls)
-    static let geminiModelName = "gemini-1.5-flash"
-    static let openaiModelName = "gpt-4o-mini"
-    static let anthropicModelName = "claude-3-5-haiku-latest"
+    static let geminiModelName = "Gemini 2.5 Flash"
+    static let openaiModelName = "GPT-5.2"
+    static let anthropicModelName = "Claude Opus 4.6"
+    
+    // Available Gemini Models (curated from Google AI Studio, Feb 2026)
+    struct GeminiModel {
+        let id: String        // API model ID (e.g. "gemini-2.5-flash")
+        let displayName: String
+        
+        static let allModels: [GeminiModel] = [
+            GeminiModel(id: "gemini-3-flash", displayName: "Gemini 3 Flash"),
+            GeminiModel(id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro (Preview)"),
+            GeminiModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
+            GeminiModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
+            GeminiModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash-Lite"),
+            GeminiModel(id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash"),
+        ]
+        
+        static let defaultModelId = "gemini-2.5-flash"
+    }
+    
+    // Available OpenAI Models (Feb 2026)
+    struct OpenAIModel {
+        let id: String
+        let displayName: String
+        
+        static let allModels: [OpenAIModel] = [
+            OpenAIModel(id: "gpt-5.2", displayName: "GPT-5.2"),
+            OpenAIModel(id: "gpt-5.2-mini", displayName: "GPT-5.2 Mini"),
+            OpenAIModel(id: "gpt-5.2-nano", displayName: "GPT-5.2 Nano"),
+            OpenAIModel(id: "o3", displayName: "o3"),
+            OpenAIModel(id: "o3-mini", displayName: "o3-mini"),
+        ]
+        
+        static let defaultModelId = "gpt-5.2"
+    }
+    
+    // Available Anthropic Models (Feb 2026)
+    struct AnthropicModel {
+        let id: String
+        let displayName: String
+        
+        static let allModels: [AnthropicModel] = [
+            AnthropicModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
+            AnthropicModel(id: "claude-opus-4-5", displayName: "Claude Opus 4.5"),
+            AnthropicModel(id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5"),
+            AnthropicModel(id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5"),
+        ]
+        
+        static let defaultModelId = "claude-opus-4-6"
+    }
     
     // MARK: - UI
     static let uiUpdateFPS: Double = 30.0
@@ -54,6 +102,7 @@ struct Constants {
         static let modelSelectionChanged = Notification.Name("modelSelectionChanged")
         static let historyEntryAdded = Notification.Name("historyEntryAdded")
         static let microphoneChanged = Notification.Name("microphoneChanged")
+        static let meetingTranscriptUpdated = Notification.Name("meetingTranscriptUpdated")
     }
     
     struct Keys {
@@ -75,5 +124,22 @@ struct Constants {
         static let openaiApiKey = "openaiApiKey"
         static let anthropicApiKey = "anthropicApiKey"
         static let vocabularyMapping = "vocabularyMapping"
+        static let showIconInDock = "showIconInDock"
+        static let geminiModelId = "geminiModelId"
+        static let openaiModelId = "openaiModelId"
+        static let anthropicModelId = "anthropicModelId"
+    }
+}
+
+extension NSColor {
+    convenience init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if hexSanitized.hasPrefix("#") { hexSanitized.remove(at: hexSanitized.startIndex) }
+        var rgb: UInt64 = 0
+        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
+        self.init(red: CGFloat((rgb & 0xFF0000) >> 16) / 255.0,
+                  green: CGFloat((rgb & 0x00FF00) >> 8) / 255.0,
+                  blue: CGFloat(rgb & 0x0000FF) / 255.0,
+                  alpha: 1.0)
     }
 }

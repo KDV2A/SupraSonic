@@ -33,6 +33,9 @@ namespace SupraSonicWin.Native
         [DllImport(__DllName, EntryPoint = "suprasonic_stop_recording", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern int suprasonic_stop_recording();
 
+        [DllImport(__DllName, EntryPoint = "suprasonic_flush", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern int suprasonic_flush();
+
 
     }
 

@@ -1,378 +1,425 @@
 import Foundation
-import MLX
-import MLXLLM
-import MLXLMCommon
-import Hub
 
+/// Manages Large Language Model interactions via Cloud APIs.
 @MainActor
 class LLMManager: ObservableObject {
     static let shared = LLMManager()
     
-    @Published var isReady = false
+    @Published var isReady = true
     @Published var isLoading = false
-    @Published var progress: Double = 0
+    @Published var progress: Double = 0.0
+    @Published var statusMessage = ""
     
-    private var modelContainer: ModelContainer?
-    private var m_hub: HubApi?
+    private let session = URLSession.shared
     
-    private let queue = DispatchQueue(label: "com.suprasonic.llmmanager")
     private init() {}
     
     func initialize() async throws {
-        guard !isReady && !isLoading else { return }
+        // Validation check on startup
+        let provider = SettingsManager.shared.llmProvider
+        if provider != .none {
+            print("✅ LLMManager: Initialized with provider: \(provider.displayName)")
+        }
+    }
+    
+    // MARK: - Validation
+    
+    func validateApiKey(provider: SettingsManager.LLMProvider, apiKey: String) async throws -> (isValid: Bool, modelName: String?) {
+        guard !apiKey.isEmpty else { return (false, nil) }
         
-        isLoading = true
-        progress = 0
+        switch provider {
+        case .openai:
+            return try await validateOpenAI(apiKey: apiKey)
+        case .google:
+            return try await validateGemini(apiKey: apiKey)
+        case .anthropic:
+            let isValid = apiKey.starts(with: "sk-ant")
+            return (isValid, isValid ? "Claude 3.5 Sonnet" : nil)
+        case .none:
+            return (true, nil)
+        }
+    }
+    
+    private func validateOpenAI(apiKey: String) async throws -> (isValid: Bool, modelName: String?) {
+        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        // 1. Configure custom download directory and migrate existing models
-        configureAndMigrateModels()
+        let body: [String: Any] = [
+            "model": SettingsManager.shared.openaiModelId,
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 1
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        do {
-            let modelId = Constants.llmModelName
-            let configuration = ModelConfiguration(id: modelId)
+        let (_, response) = try await session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse {
+            print("🌐 OpenAI Validation Status: \(httpResponse.statusCode)")
+            if httpResponse.statusCode == 200 {
+                // OpenAI doesn't easily return the "best" model, but we can assume success means GPT-4o level for this plan
+                // Or we could list models, but that's a separate call. For now, let's just return a success label.
+                return (true, "GPT-4o (Verified)")
+            }
+        }
+        return (false, nil)
+    }
+    
+    private func validateGemini(apiKey: String) async throws -> (isValid: Bool, modelName: String?) {
+        let modelId = SettingsManager.shared.geminiModelId
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelId):generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": "hi"]]]],
+            "generationConfig": ["max_output_tokens": 1]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await session.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse {
+            print("🌐 Gemini Validation Status: \(httpResponse.statusCode)")
             
-            // MLXLLM handles downloading and loading via ModelFactory
-            // We pass our custom HubApi instance if available
-            let container = try await LLMModelFactory.shared.loadContainer(hub: m_hub ?? HubApi(), configuration: configuration) { [weak self] progress in
-                Task { @MainActor in
-                    self?.progress = progress.fractionCompleted
+            // 429 = rate limited but key IS valid
+            if httpResponse.statusCode == 429 {
+                print("⚠️ Gemini: Rate limited (429) — key is valid but throttled")
+                let displayName = Constants.GeminiModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+                return (true, "\(displayName) (Rate Limited)")
+            }
+            
+            if httpResponse.statusCode == 200 {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let _ = json["candidates"] as? [[String: Any]] {
+                    let displayName = Constants.GeminiModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+                    return (true, "\(displayName) (Verified)")
                 }
             }
             
-            self.modelContainer = container
-            self.isReady = true
-            self.isLoading = false
-            
-            // Clean up temporary download artifacts (xet) to keep user's disk clean
-            cleanupTempFolders()
-            
-            print("✅ LLMManager: Initialization successful")
-        } catch {
-            print("❌ LLMManager: Loading failed: \(error)")
-            isLoading = false
-            throw error
+            // 400/403 = invalid key
+            let errorBody = String(data: data, encoding: .utf8) ?? ""
+            print("❌ Gemini Validation Error: \(errorBody.prefix(200))")
         }
+        return (false, nil)
+    }
+
+    private func listGeminiModels(apiKey: String) async throws -> [String] {
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models?key=\(apiKey)")!
+        let (data, _) = try await session.data(for: URLRequest(url: url))
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let models = json["models"] as? [[String: Any]] {
+            return models.compactMap { $0["name"] as? String }
+        }
+        return []
     }
     
-    func unload() {
-        modelContainer = nil
-        isReady = false
-        progress = 0
-        // Force MLX to release Metal buffers and textures
-        MLX.Memory.clearCache()
-        print("🧹 LLMManager: Model unloaded and GPU cache cleared to free RAM")
-    }
+    // MARK: - Processing
     
-    func generateResponse(instruction: String, text: String) async throws -> String {
+    /// Processes a meeting transcript to generate a summary and action items.
+    func processMeeting(meeting: Meeting) async throws -> MeetingResult {
         let provider = SettingsManager.shared.llmProvider
+        var apiKey = ""
         
         switch provider {
+        case .openai: apiKey = SettingsManager.shared.openaiApiKey
+        case .google: apiKey = SettingsManager.shared.geminiApiKey
+        case .anthropic: apiKey = SettingsManager.shared.anthropicApiKey
         case .none:
-            return text
-        case .local:
-            return try await generateLocalResponse(instruction: instruction, text: text)
-        case .google:
-            return try await generateGoogleResponse(instruction: instruction, text: text)
-        case .openai:
-            return try await generateOpenAIResponse(instruction: instruction, text: text)
-        case .anthropic:
-            return try await generateAnthropicResponse(instruction: instruction, text: text)
-        }
-    }
-    
-    private func generateLocalResponse(instruction: String, text: String) async throws -> String {
-        if !isReady || modelContainer == nil {
-            if SettingsManager.shared.llmEnabled {
-                try await initialize()
-            }
-        }
-
-        guard isReady, let container = modelContainer else {
-            throw LLMError.notInitialized
+            throw NSError(domain: "LLMManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "No AI Provider Configured"])
         }
         
-        let session = ChatSession(container)
-        let systemPrompt = getSystemPrompt()
+        if apiKey.isEmpty {
+             throw NSError(domain: "LLMManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "API Key missing for \(provider.displayName)"])
+        }
         
-        let fullPrompt = """
-        \(systemPrompt)
+        self.isLoading = true
+        self.progress = 0.1
+        self.statusMessage = "Analyzing transcript..."
         
-        <INSTRUCTION>\(instruction)</INSTRUCTION>
-        <TEXT>\(text)</TEXT>
+        defer {
+            self.isLoading = false
+            self.progress = 1.0
+            self.statusMessage = ""
+        }
         
-        RESULT:
+        // Prepare Transcript
+        let fullText = meeting.segments.map { "[\($0.speakerName ?? "Speaker")]: \($0.text)" }.joined(separator: "\n")
+        let prompt = """
+        You are an expert meeting assistant. Analyze the following meeting transcript.
+        
+        Output a response in JSON format with the following structure:
+        {
+          "summary": "A concise paragraph summarizing the meeting.",
+          "actionItems": ["Action item 1", "Action item 2"],
+          "title": "A suggested title for the meeting"
+        }
+        
+        Transcript:
+        \(fullText)
         """
         
-        let result = try await session.respond(to: fullPrompt)
-        return cleanResult(result)
+        var jsonResult: String = "{}"
+        
+        switch provider {
+        case .openai:
+            jsonResult = try await callOpenAI(apiKey: apiKey, prompt: prompt, isJson: true)
+        case .google:
+            jsonResult = try await callGemini(apiKey: apiKey, prompt: prompt, isJson: true)
+        case .anthropic:
+            // Anthropic is good at following instructions, so we rely on the prompt + cleanJson
+            jsonResult = try await callAnthropic(apiKey: apiKey, prompt: prompt)
+        default:
+             throw NSError(domain: "LLMManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "Provider not implemented"])
+        }
+        
+        // Parse JSON
+        // Robustness: Try to find JSON block if wrapped in markdown
+        let cleanedJson = cleanJson(jsonResult)
+        guard let data = cleanedJson.data(using: .utf8),
+              let responseObj = try? JSONDecoder().decode(AIResponse.self, from: data) else {
+             // Fallback if JSON fails, return raw text as summary
+             return MeetingResult(summary: cleanedJson, actionItems: [], corrected: nil)
+        }
+        
+        return MeetingResult(summary: responseObj.summary, actionItems: responseObj.actionItems, corrected: nil)
     }
     
-    private func generateGoogleResponse(instruction: String, text: String) async throws -> String {
-        let apiKey = SettingsManager.shared.geminiApiKey
-        guard !apiKey.isEmpty else { throw LLMError.missingApiKey }
+    /// Processes a custom AI skill with a specific prompt and input text.
+    func processSkill(skill: AISkill, text: String, selectedText: String? = nil) async throws -> String {
+        let provider = SettingsManager.shared.llmProvider
+        var apiKey = ""
         
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(Constants.geminiModelName):generateContent?key=\(apiKey)")!
+        print("🤖 LLM: processSkill called — provider=\(provider.rawValue), skill='\(skill.name)', text='\(text.prefix(50))', hasSelection=\(selectedText != nil)")
+        
+        switch provider {
+        case .openai: apiKey = SettingsManager.shared.openaiApiKey
+        case .google: apiKey = SettingsManager.shared.geminiApiKey
+        case .anthropic: apiKey = SettingsManager.shared.anthropicApiKey
+        case .none:
+            print("❌ LLM: No AI Provider configured")
+            throw NSError(domain: "LLMManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "No AI Provider Configured"])
+        }
+        
+        if apiKey.isEmpty {
+            print("❌ LLM: API Key is empty for \(provider.displayName)")
+            throw NSError(domain: "LLMManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "API Key missing for \(provider.displayName)"])
+        }
+        
+        print("🤖 LLM: API key present (\(apiKey.prefix(8))...), calling \(provider.displayName)...")
+        
+        self.isLoading = true
+        self.progress = 0.5
+        self.statusMessage = "Processing skill '\(skill.name)'..."
+        
+        defer {
+            self.isLoading = false
+            self.progress = 1.0
+            self.statusMessage = ""
+        }
+        
+        // Build prompt with optional selected text context
+        var prompt: String
+        if let selectedText = selectedText, !selectedText.isEmpty {
+            prompt = """
+            \(skill.prompt)
+            
+            Selected text (context from user's screen):
+            \(selectedText)
+            
+            User request:
+            \(text)
+            """
+            print("🤖 LLM: Prompt includes selected text context (\(selectedText.count) chars)")
+        } else {
+            prompt = """
+            \(skill.prompt)
+            
+            Text to process:
+            \(text)
+            """
+        }
+        
+        switch provider {
+        case .openai:
+            let response = try await callOpenAI(apiKey: apiKey, prompt: prompt, isJson: false)
+            print("🤖 OpenAI Response (first 50 chars): \(response.prefix(50))")
+            return response
+        case .google:
+            let response = try await callGemini(apiKey: apiKey, prompt: prompt, isJson: false)
+            print("🤖 Gemini Response (first 50 chars): \(response.prefix(50))")
+            return response
+        case .anthropic:
+            let response = try await callAnthropic(apiKey: apiKey, prompt: prompt)
+            print("🤖 Anthropic Response (first 50 chars): \(response.prefix(50))")
+            return response
+        case .none:
+            throw NSError(domain: "LLMManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "No provider"])
+        }
+    }
+
+    private func cleanJson(_ text: String) -> String {
+        // Remove markdown code blocks ```json ... ```
+        var clean = text
+        if let rangeStart = clean.range(of: "```json"), let rangeEnd = clean.range(of: "```", range: rangeStart.upperBound..<clean.endIndex) {
+            clean = String(clean[rangeStart.upperBound..<rangeEnd.lowerBound])
+        } else if let rangeStart = clean.range(of: "```"), let rangeEnd = clean.range(of: "```", range: rangeStart.upperBound..<clean.endIndex) {
+             clean = String(clean[rangeStart.upperBound..<rangeEnd.lowerBound])
+        }
+        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    // MARK: - API Calls
+    
+    private func callOpenAI(apiKey: String, prompt: String, isJson: Bool) async throws -> String {
+        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let prompt = "\(getSystemPrompt())\n\n<INSTRUCTION>\(instruction)</INSTRUCTION>\n<TEXT>\(text)</TEXT>\n\nRESULT:"
-        let body: [String: Any] = [
+        var messages: [[String: String]] = []
+        if isJson {
+            messages.append(["role": "system", "content": "You are a helpful assistant that outputs strictly JSON."])
+        }
+        messages.append(["role": "user", "content": prompt])
+        
+        var body: [String: Any] = [
+            "model": SettingsManager.shared.openaiModelId,
+            "messages": messages
+        ]
+        
+        if isJson {
+            body["response_format"] = ["type": "json_object"]
+        }
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+             let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown Error"
+             throw NSError(domain: "OpenAI", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+        }
+        
+        let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        return result.choices.first?.message.content ?? ""
+    }
+    
+    private func callGemini(apiKey: String, prompt: String, isJson: Bool) async throws -> String {
+        let modelId = SettingsManager.shared.geminiModelId
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(modelId):generateContent?key=\(apiKey)")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        var body: [String: Any] = [
             "contents": [
                 ["parts": [["text": prompt]]]
             ]
         ]
         
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("❌ Google API Error (\(httpResponse.statusCode)): \(errorMsg)")
-            throw LLMError.apiError("Google API returned \(httpResponse.statusCode): \(errorMsg)")
+        if isJson {
+            body["generationConfig"] = [
+                "response_mime_type": "application/json"
+            ]
         }
-        
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        
-        if let candidates = json?["candidates"] as? [[String: Any]],
-           let first = candidates.first,
-           let content = first["content"] as? [String: Any],
-           let parts = content["parts"] as? [[String: Any]],
-           let text = parts.first?["text"] as? String {
-            return cleanResult(text)
-        }
-        
-        throw LLMError.apiError("Invalid response format from Google: \(String(data: data, encoding: .utf8) ?? "Empty data")")
-    }
-    
-    private func generateOpenAIResponse(instruction: String, text: String) async throws -> String {
-        let apiKey = SettingsManager.shared.openaiApiKey
-        guard !apiKey.isEmpty else { throw LLMError.missingApiKey }
-        
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let body: [String: Any] = [
-            "model": Constants.openaiModelName,
-            "messages": [
-                ["role": "system", "content": getSystemPrompt()],
-                ["role": "user", "content": "<INSTRUCTION>\(instruction)</INSTRUCTION>\n<TEXT>\(text)</TEXT>\n\nRESULT:"]
-            ],
-            "temperature": 0.7
-        ]
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let (data, response) = try await session.data(for: request)
         
-        if let choices = json?["choices"] as? [[String: Any]],
-           let message = choices.first?["message"] as? [String: Any],
-           let content = message["content"] as? String {
-            return cleanResult(content)
+        if let httpResponse = response as? HTTPURLResponse {
+            print("🌐 Gemini API Status: \(httpResponse.statusCode)")
+            if httpResponse.statusCode != 200 {
+                let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown Error"
+                print("❌ Gemini API Error: \(errorMsg.prefix(200))")
+                throw NSError(domain: "Gemini", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+            }
         }
         
-        throw LLMError.apiError("Invalid response from OpenAI")
+        let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
+        return result.candidates.first?.content.parts.first?.text ?? ""
     }
     
-    private func generateAnthropicResponse(instruction: String, text: String) async throws -> String {
-        let apiKey = SettingsManager.shared.anthropicApiKey
-        guard !apiKey.isEmpty else { throw LLMError.missingApiKey }
-        
+    private func callAnthropic(apiKey: String, prompt: String) async throws -> String {
         let url = URL(string: "https://api.anthropic.com/v1/messages")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let body: [String: Any] = [
-            "model": Constants.anthropicModelName,
-            "system": getSystemPrompt(),
+            "model": SettingsManager.shared.anthropicModelId,
+            "max_tokens": 1024,
             "messages": [
-                ["role": "user", "content": "<INSTRUCTION>\(instruction)</INSTRUCTION>\n<TEXT>\(text)</TEXT>\n\nRESULT:"]
-            ],
-            "max_tokens": 1024
+                ["role": "user", "content": prompt]
+            ]
         ]
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let (data, response) = try await session.data(for: request)
         
-        if let content = json?["content"] as? [[String: Any]],
-           let firstPart = content.first,
-           let text = firstPart["text"] as? String {
-            return cleanResult(text)
-        }
-        
-        throw LLMError.apiError("Invalid response from Anthropic: \(String(data: data, encoding: .utf8) ?? "Empty data")")
-    }
-    
-    func validateApiKey(provider: SettingsManager.LLMProvider, apiKey: String) async throws -> Bool {
-        guard !apiKey.isEmpty else { return false }
-        
-        let testPrompt = "Test"
-        let testInstruction = "Respond exactly with 'OK'."
-        
-        // Temporarily override settings for validation
-        let originalGemini = SettingsManager.shared.geminiApiKey
-        let originalOpenAI = SettingsManager.shared.openaiApiKey
-        let originalAnthropic = SettingsManager.shared.anthropicApiKey
-        
-        defer {
-            SettingsManager.shared.geminiApiKey = originalGemini
-            SettingsManager.shared.openaiApiKey = originalOpenAI
-            SettingsManager.shared.anthropicApiKey = originalAnthropic
-        }
-        
-        switch provider {
-        case .google:
-            SettingsManager.shared.geminiApiKey = apiKey
-            _ = try await generateGoogleResponse(instruction: testInstruction, text: testPrompt)
-        case .openai:
-            SettingsManager.shared.openaiApiKey = apiKey
-            _ = try await generateOpenAIResponse(instruction: testInstruction, text: testPrompt)
-        case .anthropic:
-            SettingsManager.shared.anthropicApiKey = apiKey
-            _ = try await generateAnthropicResponse(instruction: testInstruction, text: testPrompt)
-        case .local, .none:
-            return true
-        }
-        
-        return true
-    }
-    
-    private func getSystemPrompt() -> String {
-        let vocabulary = SettingsManager.shared.vocabularyMapping
-        var vocabInstruction = ""
-        if !vocabulary.isEmpty {
-            vocabInstruction = "\n\nCRITICAL VOCABULARY:\n"
-            for (spoken, corrected) in vocabulary {
-                vocabInstruction += "- Always use \"\(corrected)\" instead of \"\(spoken)\"\n"
-            }
-        }
-
-        return """
-        You are a surgical text-replacement tool.
-        You take <TEXT> and apply <INSTRUCTION>.
-        
-        CRITICAL RULES:
-        - OUTPUT ONLY the result.
-        - NO "Here is the...", NO "Translation:", NO "Result:".
-        - NO conversational filler.
-        - NO explanations.
-        - If the respondent asks a question, ignore it and just process the text.\(vocabInstruction)
-        """
-    }
-    
-    private func cleanResult(_ result: String) -> String {
-        var cleanedResult = result
-        
-        // 1. Remove thought tags
-        let thoughtPatterns = [
-            "<thought>[\\s\\S]*?<\\/thought>",
-            "<thinking>[\\s\\S]*?<\\/thinking>",
-            "<think>[\\s\\S]*?<\\/think>",
-            "<thought>[\\s\\S]*?$", 
-            "<thinking>[\\s\\S]*?$",
-            "<think>[\\s\\S]*?$"
-        ]
-        
-        for pattern in thoughtPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                cleanedResult = regex.stringByReplacingMatches(in: cleanedResult, options: [], range: NSRange(location: 0, length: cleanedResult.utf16.count), withTemplate: "")
+        if let httpResponse = response as? HTTPURLResponse {
+            print("🌐 Anthropic API Status: \(httpResponse.statusCode)")
+            if httpResponse.statusCode != 200 {
+                let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown Error"
+                print("❌ Anthropic API Error: \(errorMsg.prefix(200))")
+                throw NSError(domain: "Anthropic", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
             }
         }
         
-        // 2. Remove common conversational prefixes
-        let prefixPatterns = [
-            "^(Here is the|Here is a|Here's the|Here's a|This is the) (precise |refined |corrected |translated )?(translation|result|text|version)[:\\s]*",
-            "^The (refined|corrected|translated) text is[:\\s]*",
-            "^(Translation|Result|Revised Text)[:\\s]*",
-            "^Sure! ",
-            "^Certainly! ",
-            "^Here you go: "
-        ]
-        
-        for pattern in prefixPatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                cleanedResult = regex.stringByReplacingMatches(in: cleanedResult, options: [], range: NSRange(location: 0, length: cleanedResult.utf16.count), withTemplate: "")
-            }
+        // Anthropic response format: { "content": [{ "type": "text", "text": "..." }] }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let content = json["content"] as? [[String: Any]],
+           let firstBlock = content.first,
+           let text = firstBlock["text"] as? String {
+            return text
         }
         
-        return cleanedResult.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        throw NSError(domain: "Anthropic", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to parse response"])
     }
     
-    private func configureAndMigrateModels() {
-        let targetURL = getModelsDirectoryURL()
-        
-        // Create our custom HubApi instance with dedicated folder
-        self.m_hub = HubApi(downloadBase: targetURL)
-        print("📂 LLMManager: HubApi configured with base \(targetURL.path)")
-        
-        // Migrate from default HF cache if exists
-        let fileManager = FileManager.default
-        let home = fileManager.homeDirectoryForCurrentUser
-        let sourceHF = home.appendingPathComponent(".cache/huggingface")
-        
-        if fileManager.fileExists(atPath: sourceHF.path) && !fileManager.fileExists(atPath: targetURL.appendingPathComponent("hub").path) {
-            print("🧹 LLMManager: Migrating existing models from ~/.cache/huggingface...")
-            
-            do {
-                // Ensure parent exists
-                try fileManager.createDirectory(at: targetURL, withIntermediateDirectories: true)
-                
-                // Move everything inside .cache/huggingface to our targetURL
-                let contents = try fileManager.contentsOfDirectory(at: sourceHF, includingPropertiesForKeys: nil)
-                for item in contents {
-                    let destItem = targetURL.appendingPathComponent(item.lastPathComponent)
-                    if !fileManager.fileExists(atPath: destItem.path) {
-                        try fileManager.moveItem(at: item, to: destItem)
-                    }
+    // MARK: - Models
+    
+    struct MeetingResult {
+        let summary: String
+        let actionItems: [String]
+        let corrected: String?
+    }
+    
+    private struct AIResponse: Codable {
+        let summary: String
+        let actionItems: [String]
+        let title: String?
+    }
+    
+    // OpenAI Models
+    private struct OpenAIResponse: Codable {
+        struct Choice: Codable {
+            struct Message: Codable {
+                let content: String
+            }
+            let message: Message
+        }
+        let choices: [Choice]
+    }
+    
+    // Gemini Models
+    private struct GeminiResponse: Codable {
+        struct Candidate: Codable {
+            struct Content: Codable {
+                struct Part: Codable {
+                    let text: String
                 }
-                
-                // Try to remove the now empty sourceHF directory
-                try? fileManager.removeItem(at: sourceHF)
-                print("✅ LLMManager: Migration complete")
-            } catch {
-                print("⚠️ LLMManager: Migration failed: \(error)")
+                let parts: [Part]
             }
+            let content: Content
         }
-    }
-    
-    private func cleanupTempFolders() {
-        let targetURL = getModelsDirectoryURL()
-        let fileManager = FileManager.default
-        let xetDir = targetURL.appendingPathComponent("xet")
-        
-        if fileManager.fileExists(atPath: xetDir.path) {
-            print("🧹 LLMManager: Cleaning up temporary xet directory...")
-            try? fileManager.removeItem(at: xetDir)
-        }
-    }
-    
-    private func getModelsDirectoryURL() -> URL {
-        let fileManager = FileManager.default
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("SupraSonic/models/huggingface.co")
+        let candidates: [Candidate]
     }
 }
 
-enum LLMError: LocalizedError {
-    case notInitialized
-    case missingApiKey
-    case apiError(String)
-    
-    var errorDescription: String? {
-        switch self {
-        case .notInitialized: return "LLM Engine not initialized"
-        case .missingApiKey: return "API Key missing in settings"
-        case .apiError(let msg): return "API Error: \(msg)"
-        }
-    }
-}

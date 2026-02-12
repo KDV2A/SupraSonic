@@ -1,5 +1,7 @@
 import Foundation
+import Foundation
 import ServiceManagement
+import AppKit
 
 class SettingsManager {
     static let shared = SettingsManager()
@@ -13,7 +15,7 @@ class SettingsManager {
     
     enum LLMProvider: String, Codable, CaseIterable {
         case none = "none"
-        case local = "local"
+        // case local = "local" // DEPRECATED
         case google = "google"
         case openai = "openai"
         case anthropic = "anthropic"
@@ -21,10 +23,9 @@ class SettingsManager {
         var displayName: String {
             switch self {
             case .none: return L10n.isFrench ? "Aucun" : "None"
-            case .local: return "SupraSonic Local (Ministral-3B)"
-            case .google: return "Google (Gemini)"
-            case .openai: return "OpenAI (GPT-4o)"
-            case .anthropic: return "Anthropic (Claude)"
+            case .google: return "Google"
+            case .openai: return "OpenAI"
+            case .anthropic: return "Anthropic"
             }
         }
     }
@@ -84,18 +85,37 @@ class SettingsManager {
     
     var aiSkills: [AISkill] {
         get {
+            // Default skills if none exist
+            let assistantSkill = AISkill(name: L10n.isFrench ? "Assistant" : "Assistant",
+                                        trigger: L10n.isFrench ? "assistant" : "assistant",
+                                        prompt: """
+Tu es un assistant de dictée vocale ultra-rapide intégré à une application de productivité. Ton rôle est d'assister l'utilisateur immédiatement après la détection d'une commande vocale.
+
+Tes principes de réponse :
+
+Concision absolue : Va droit au but. Pas de politesses superflues ("Enchanté", "Voici votre résumé") sauf si l'utilisateur le demande.
+
+Formatage propre : Utilise des listes à puces ou du gras pour rendre les informations lisibles d'un seul coup d'œil.
+
+Contexte de dictée : Si l'utilisateur te demande de 'corriger' ou 'reformuler', traite le texte dicté avec soin en respectant le ton original.
+
+Vitesse : Tes réponses doivent être structurées pour être lues rapidement par une synthèse vocale ou affichées instantanément.
+""",
+                                        color: "blue")
+
             if let data = defaults.data(forKey: Constants.Keys.aiSkills),
-               let skills = try? JSONDecoder().decode([AISkill].self, from: data) {
+               var skills = try? JSONDecoder().decode([AISkill].self, from: data) {
+                // FORCE MIGRATION: Remove "Traduction" if it's the old default
+                if skills.count == 1 && (skills[0].name == "Traduction" || skills[0].name == "Translation") {
+                    skills = [assistantSkill]
+                    if let migratedData = try? JSONEncoder().encode(skills) {
+                        defaults.set(migratedData, forKey: Constants.Keys.aiSkills)
+                    }
+                }
                 return skills
             }
-            // Default skills if none exist
-            let defaults = [
-                AISkill(name: L10n.isFrench ? "Traduction" : "Translation",
-                        trigger: L10n.isFrench ? "traduction" : "translation",
-                        prompt: Constants.defaultAISkillPrompt,
-                        color: "blue")
-            ]
-            return defaults
+            
+            return [assistantSkill]
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -114,7 +134,7 @@ class SettingsManager {
         set { 
             if newValue {
                 if llmProvider == .none {
-                    llmProvider = .local // Default to local if enabling
+                    llmProvider = .openai // Default to OpenAI if enabling
                 }
             } else {
                 llmProvider = .none
@@ -133,6 +153,21 @@ class SettingsManager {
     var geminiApiKey: String {
         get { defaults.string(forKey: Constants.Keys.geminiApiKey) ?? "" }
         set { defaults.set(newValue, forKey: Constants.Keys.geminiApiKey) }
+    }
+    
+    var geminiModelId: String {
+        get { defaults.string(forKey: Constants.Keys.geminiModelId) ?? Constants.GeminiModel.defaultModelId }
+        set { defaults.set(newValue, forKey: Constants.Keys.geminiModelId) }
+    }
+    
+    var openaiModelId: String {
+        get { defaults.string(forKey: Constants.Keys.openaiModelId) ?? Constants.OpenAIModel.defaultModelId }
+        set { defaults.set(newValue, forKey: Constants.Keys.openaiModelId) }
+    }
+    
+    var anthropicModelId: String {
+        get { defaults.string(forKey: Constants.Keys.anthropicModelId) ?? Constants.AnthropicModel.defaultModelId }
+        set { defaults.set(newValue, forKey: Constants.Keys.anthropicModelId) }
     }
     
     var openaiApiKey: String {
@@ -210,6 +245,23 @@ class SettingsManager {
             } catch {
                 print("❌ Failed to update launch on login: \(error)")
             }
+        }
+    }
+    
+    // MARK: - Appearance
+    
+    var showInDock: Bool {
+        get { defaults.bool(forKey: Constants.Keys.showIconInDock) }
+        set { 
+            defaults.set(newValue, forKey: Constants.Keys.showIconInDock)
+            // Changing activation policy usually requires a restart or complex API calls
+            // We can prompt the user or try to set it immediately (though transitioning back to accessory is tricky)
+            if newValue {
+                NSApp.setActivationPolicy(.regular)
+            } else {
+                NSApp.setActivationPolicy(.accessory)
+            }
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
     

@@ -399,6 +399,22 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -441,6 +457,10 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 public protocol AppStateProtocol : AnyObject {
+    
+    func flush() throws 
+    
+    func setListener(listener: TranscriptionListener) 
     
     func startRecording() throws 
     
@@ -504,6 +524,19 @@ public convenience init() {
 
     
 
+    
+open func flush()throws  {try rustCallWithError(FfiConverterTypeSupraSonicError.lift) {
+    uniffi_suprasonic_core_fn_method_appstate_flush(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func setListener(listener: TranscriptionListener) {try! rustCall() {
+    uniffi_suprasonic_core_fn_method_appstate_set_listener(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceTranscriptionListener.lower(listener),$0
+    )
+}
+}
     
 open func startRecording()throws  {try rustCallWithError(FfiConverterTypeSupraSonicError.lift) {
     uniffi_suprasonic_core_fn_method_appstate_start_recording(self.uniffiClonePointer(),$0
@@ -656,6 +689,162 @@ extension SupraSonicError: Foundation.LocalizedError {
     }
 }
 
+
+
+
+public protocol TranscriptionListener : AnyObject {
+    
+    func onAudioData(audioData: [Float]) 
+    
+    func onLevelChanged(level: Float) 
+    
+}
+
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceTranscriptionListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceTranscriptionListener = UniffiVTableCallbackInterfaceTranscriptionListener(
+        onAudioData: { (
+            uniffiHandle: UInt64,
+            audioData: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTranscriptionListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onAudioData(
+                     audioData: try FfiConverterSequenceFloat.lift(audioData)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onLevelChanged: { (
+            uniffiHandle: UInt64,
+            level: Float,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTranscriptionListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onLevelChanged(
+                     level: try FfiConverterFloat.lift(level)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceTranscriptionListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface TranscriptionListener: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitTranscriptionListener() {
+    uniffi_suprasonic_core_fn_init_callback_vtable_transcriptionlistener(&UniffiCallbackInterfaceTranscriptionListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceTranscriptionListener {
+    fileprivate static var handleMap = UniffiHandleMap<TranscriptionListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceTranscriptionListener : FfiConverter {
+    typealias SwiftType = TranscriptionListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]
+
+    public static func write(_ value: [Float], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterFloat.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Float] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Float]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterFloat.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -671,6 +860,12 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_suprasonic_core_checksum_method_appstate_flush() != 38236) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_suprasonic_core_checksum_method_appstate_set_listener() != 34181) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_suprasonic_core_checksum_method_appstate_start_recording() != 18920) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -680,7 +875,14 @@ private var initializationResult: InitializationResult = {
     if (uniffi_suprasonic_core_checksum_constructor_appstate_new() != 57064) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_suprasonic_core_checksum_method_transcriptionlistener_on_audio_data() != 35407) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_suprasonic_core_checksum_method_transcriptionlistener_on_level_changed() != 21755) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitTranscriptionListener()
     return InitializationResult.ok
 }()
 

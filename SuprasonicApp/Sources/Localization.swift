@@ -16,6 +16,7 @@ struct L10n: Equatable {
     let generalTab: String
     let historyTab: String
     let aiAssistantTab: String
+    let aiAssistantModel: String
     let muteDuringRecording: String
     let muteDuringRecordingDesc: String
     let llmProviderLabel: String
@@ -139,9 +140,10 @@ struct L10n: Equatable {
         generalTab: "General",
         historyTab: "History",
         aiAssistantTab: "AI Assistant",
+        aiAssistantModel: "Model",
         muteDuringRecording: "Mute During Recording",
         muteDuringRecordingDesc: "Mute system sounds while recording is in progress",
-        llmProviderLabel: "AI Model Provider",
+        llmProviderLabel: "AI Connection",
         apiKeyLabel: "API Key",
         localModelActive: "Using local Mistral model (offline)",
         shortcutsSection: "KEYBOARD SHORTCUT",
@@ -243,9 +245,10 @@ struct L10n: Equatable {
         generalTab: "Général",
         historyTab: "Historique",
         aiAssistantTab: "Assistant IA",
+        aiAssistantModel: "Modèle",
         muteDuringRecording: "Couper le son pendant l'enregistrement",
         muteDuringRecordingDesc: "Coupe le son du système pendant les phases d'enregistrement",
-        llmProviderLabel: "Fournisseur de modèle IA",
+        llmProviderLabel: "Connexion IA",
         apiKeyLabel: "Clé API",
         localModelActive: "Utilisation du modèle Mistral local (hors-ligne)",
         shortcutsSection: "RACCOURCI CLAVIER",
@@ -286,7 +289,7 @@ struct L10n: Equatable {
         correctedWord: "Correction (ex: SupraSonic)",
         delete: "Supprimer",
         aiAssistantPromptLabel: "Prompt de l'Assistant",
-        aiAssistantPromptDesc: "Ce prompt définit comment l'IA transforme le texte que vous surlignez via Option Droite.",
+        aiAssistantPromptDesc: "Ce prompt définit comment l'IA assiste l'utilisateur immédiatement après la dictée.",
         reset: "Réinitialiser",
         resetConfirm: "Réinitialiser les paramètres?",
         resetMessage: "Tous les paramètres seront remis à leurs valeurs par défaut.",

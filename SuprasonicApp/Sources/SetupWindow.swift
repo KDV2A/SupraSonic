@@ -9,7 +9,6 @@ class SetupWindow: NSWindow {
     private var progressBar: NSProgressIndicator!
     private var actionButton: NSButton!
     private var progressLabel: NSTextField!
-    private var troubleshootButton: NSButton!
     private var tipLabel: NSTextField!
     
     
@@ -116,36 +115,6 @@ class SetupWindow: NSWindow {
         progressStack.addArrangedSubview(progressLabel)
         progressStack.addArrangedSubview(tipLabel)
         
-        // AI Choice Container
-        aiChoiceContainer = NSStackView()
-        aiChoiceContainer.orientation = .vertical
-        aiChoiceContainer.spacing = 20
-        aiChoiceContainer.alignment = .centerX
-        aiChoiceContainer.isHidden = true
-        
-        aiTitleLabel = NSTextField(labelWithString: l.setupLLMTitle)
-        aiTitleLabel.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-        aiTitleLabel.textColor = .labelColor
-        
-        aiDescLabel = NSTextField(wrappingLabelWithString: l.setupLLMDesc)
-        aiDescLabel.font = NSFont.systemFont(ofSize: 13)
-        aiDescLabel.textColor = .secondaryLabelColor
-        aiDescLabel.alignment = .center
-        
-        enableAIButton = NSButton(title: l.setupLLMEnable, target: self, action: #selector(onEnableAIClick))
-        enableAIButton.bezelStyle = .rounded
-        enableAIButton.controlSize = .large
-        enableAIButton.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        
-        skipAIButton = NSButton(title: l.setupLLMSkip, target: self, action: #selector(onSkipAIClick))
-        skipAIButton.bezelStyle = .recessed
-        skipAIButton.controlSize = .small
-        
-        aiChoiceContainer.addArrangedSubview(aiTitleLabel)
-        aiChoiceContainer.addArrangedSubview(aiDescLabel)
-        aiChoiceContainer.addArrangedSubview(enableAIButton)
-        aiChoiceContainer.addArrangedSubview(skipAIButton)
-        
         // Button
         actionButton = NSButton(title: l.setupGetStarted, target: self, action: #selector(startSetup))
         actionButton.bezelStyle = .rounded
@@ -153,19 +122,11 @@ class SetupWindow: NSWindow {
         actionButton.font = NSFont.systemFont(ofSize: 14, weight: .medium)
         actionButton.keyEquivalent = "\r"
         
-        troubleshootButton = NSButton(title: l.accessibilityTroubleshootTitle, target: self, action: #selector(showTroubleshooting))
-        troubleshootButton.bezelStyle = .recessed
-        troubleshootButton.controlSize = .small
-        troubleshootButton.font = NSFont.systemFont(ofSize: 12)
-        troubleshootButton.isHidden = true
-        
         container.addArrangedSubview(logoView)
         container.addArrangedSubview(titleLabel)
         container.addArrangedSubview(descLabel)
         container.addArrangedSubview(progressStack)
-        container.addArrangedSubview(aiChoiceContainer)
         container.addArrangedSubview(actionButton)
-        container.addArrangedSubview(troubleshootButton)
         
         NSLayoutConstraint.activate([
             container.centerXAnchor.constraint(equalTo: visualEffect.centerXAnchor),
@@ -219,15 +180,20 @@ class SetupWindow: NSWindow {
             self.makeKeyAndOrderFront(nil)
             
             if !hasAccess {
-                showError(l.accessibilityRequiredTitle)
+                // Automate repair instead of showing error
+                updateStatus(L10n.isFrench ? "Réparation des permissions..." : "Repairing permissions...", progress: 40)
+                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s delay
+                
+                PermissionsManager.shared.resetAccessibility()
+                PermissionsManager.shared.relaunchApp()
                 return
             }
             
-            // 3.5 Ask for LLM Activation
-            let useLLM = await askForLLM()
-            SettingsManager.shared.llmProvider = useLLM ? .local : .none
+            // 3.5 NO LLM SETUP REQUIRED FOR API
+            // API setup is handled in Settings now.
+            SettingsManager.shared.llmProvider = .none // Default to none, user can enable APIKey later
             
-            // 4. Download Model
+            // 4. Download Model (Transcription Only)
             self.level = .floating // Stay on top during download
             updateStatus(l.setupDownloadParakeet, progress: 45)
             DispatchQueue.main.async { self.progressLabel.isHidden = false }
@@ -239,25 +205,22 @@ class SetupWindow: NSWindow {
                 Task { @MainActor in
                     let tm = TranscriptionManager.shared
                     let engineStatus = tm.statusMessage
-                    let actualProgress = tm.progress * 100.0 // 0-1 range to 0-100
+                    let actualProgress = tm.progress * 100.0
                     
                     if engineStatus.isEmpty { return }
                     
-                    // Smooth animation towards the actual reported progress
                     if self.progressBar.doubleValue < actualProgress {
                         let diff = actualProgress - self.progressBar.doubleValue
-                        // Faster acceleration if the gap is large, but still smooth
                         self.progressBar.doubleValue += min(diff * 0.2, 5.0)
                     } else if self.progressBar.doubleValue > actualProgress + 1.0 {
-                        // Allow small corrections if it overshoots slightly from a sudden jump
                         self.progressBar.doubleValue = actualProgress
                     }
                     
                     self.statusLabel.stringValue = engineStatus
                     
-                    let mb = (self.progressBar.doubleValue / 100.0) * self.totalModelSizeMB
+                    // Approximation since we don't track total size perfectly here anymore
                     let percent = Int(self.progressBar.doubleValue)
-                    self.progressLabel.stringValue = "\(percent)% (\(Int(mb)) Mo / \(Int(self.totalModelSizeMB)) Mo)"
+                    self.progressLabel.stringValue = "\(percent)%"
                 }
             }
             
@@ -266,18 +229,15 @@ class SetupWindow: NSWindow {
                 try await TranscriptionManager.shared.initialize()
                 print("✅ Setup: Initialization successful")
                 
-                // If LLM enabled, initialize it too
-                if useLLM {
-                    updateStatus(L10n.current.localModelActive, progress: 95)
-                    try await LLMManager.shared.initialize()
-                }
+                // Initialize LLM Manager (Access Check)
+                try await LLMManager.shared.initialize()
                 
                 progressTimer.invalidate()
                 
                 // Animate to 100%
                 DispatchQueue.main.async {
                     self.progressBar.doubleValue = 100
-                    self.progressLabel.stringValue = "100% (\(Int(self.totalModelSizeMB)) Mo / \(Int(self.totalModelSizeMB)) Mo)"
+                    self.progressLabel.stringValue = "100%"
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 
@@ -287,39 +247,6 @@ class SetupWindow: NSWindow {
                 progressTimer.invalidate()
                 showError("\(l.setupError): \(error.localizedDescription)")
             }
-        }
-    }
-    
-    private func askForLLM() async -> Bool {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                self.aiContinuation = continuation
-                self.aiChoiceContainer.isHidden = false
-                self.progressBar.isHidden = true
-                self.statusLabel.isHidden = true
-                self.actionButton.isHidden = true
-            }
-        }
-    }
-    
-    @objc private func onEnableAIClick() {
-        print("🤖 AI Setup: Enabled")
-        completeAIChoice(true)
-    }
-    
-    @objc private func onSkipAIClick() {
-        print("🤖 AI Setup: Skipped")
-        completeAIChoice(false)
-    }
-    
-    private func completeAIChoice(_ choice: Bool) {
-        DispatchQueue.main.async {
-            self.aiChoiceContainer.isHidden = true
-            self.progressBar.isHidden = false
-            self.statusLabel.isHidden = false
-            self.actionButton.isHidden = false
-            self.aiContinuation?.resume(returning: choice)
-            self.aiContinuation = nil
         }
     }
     
@@ -344,7 +271,15 @@ class SetupWindow: NSWindow {
     
     @objc private func finishSetup() {
         print("✅ Setup: Success finish clicked")
-        NotificationCenter.default.post(name: Constants.NotificationNames.setupComplete, object: nil)
+        
+        // Disable animations to prevent crash during tear-down
+        self.animationBehavior = .none
+        self.orderOut(nil)
+        
+        // Post notification asynchronously to ensure current event processing finishes
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Constants.NotificationNames.setupComplete, object: nil)
+        }
     }
     
     private func requestMicrophonePermission() async -> Bool {
@@ -365,20 +300,13 @@ class SetupWindow: NSWindow {
         
         return await withCheckedContinuation { continuation in
             var attempts = 0
-            Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
+            Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
                 attempts += 1
-                
-                if attempts == 5 {
-                    DispatchQueue.main.async {
-                        self?.troubleshootButton.isHidden = false
-                    }
-                }
                 
                 if AXIsProcessTrusted() {
                     timer.invalidate()
-                    DispatchQueue.main.async { self?.troubleshootButton.isHidden = true }
                     continuation.resume(returning: true)
-                } else if attempts > 60 {
+                } else if attempts > 15 { // 30 seconds timeout
                     timer.invalidate()
                     continuation.resume(returning: false)
                 }
@@ -386,20 +314,6 @@ class SetupWindow: NSWindow {
         }
     }
     
-    @objc private func showTroubleshooting() {
-        let l = L10n.current
-        let alert = NSAlert()
-        alert.messageText = l.accessibilityTroubleshootTitle
-        alert.informativeText = l.accessibilityTroubleshootMessage
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: l.accessibilityRepairAndRelaunch)
-        alert.addButton(withTitle: l.cancel)
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            PermissionsManager.shared.resetAccessibility()
-            PermissionsManager.shared.relaunchApp()
-        }
-    }
     
     private func updateStatus(_ message: String, progress: Double) {
         DispatchQueue.main.async {

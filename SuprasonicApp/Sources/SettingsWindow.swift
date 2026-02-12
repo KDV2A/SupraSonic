@@ -14,17 +14,25 @@ class SettingsWindow: NSWindow {
     private var historyView: NSView!
     private var aiView: NSView!
     private var vocabularyView: NSView!
+    private var meetingsView: NSView!
     
     // Configuration controls
     private var historyToggle: NSSwitch!
     private var launchOnLoginToggle: NSSwitch!
     private var muteToggle: NSSwitch!
+    private var showInDockToggle: NSSwitch!
     private var microphonePopup: NSPopUpButton!
     private var pttCard: ModeCardView!
     private var toggleCard: ModeCardView!
     private var hotkeyButton: HotkeyButton!
     private var aiModesStack: NSStackView!
     private var llmProviderPopup: NSPopUpButton!
+    private var geminiModelPopup: NSPopUpButton!
+    private var geminiModelBox: NSView!
+    private var openaiModelPopup: NSPopUpButton!
+    private var openaiModelBox: NSView!
+    private var anthropicModelPopup: NSPopUpButton!
+    private var anthropicModelBox: NSView!
     private var apiKeyStack: NSStackView!
     private var apiKeyField: NSTextField!
     private var localModelLabel: NSTextField!
@@ -43,13 +51,23 @@ class SettingsWindow: NSWindow {
     private var historyScrollView: NSScrollView!
     private var historyData: [TranscriptionEntry] = []
     
+    // Meetings controls
+    private var meetingsTableView: NSTableView!
+    private var meetingsData: [Meeting] = []
+    private var meetingsEmptyStateView: NSView?
+    private var meetingStartButton: NSButton!
+    private var speakerDirectoryStack: NSStackView!
+    private var enrollmentAudioBuffer: [Float] = []
+    private var enrollmentTimer: Timer?
+    
     // Local AI Controls
     private var localAIToggle: NSSwitch!
     private var downloadProgressBar: NSProgressIndicator!
     private var downloadProgressLabel: NSTextField!
     private var downloadButton: NSButton!
     private var cancellables = Set<AnyCancellable>()
-    
+    private var activeReportWindow: MeetingDetailWindow?
+    private var validationWorkItem: DispatchWorkItem?
 
     private let l = L10n.current
     
@@ -123,6 +141,7 @@ class SettingsWindow: NSWindow {
         historyView = createHistoryView()
         aiView = createAIView()
         vocabularyView = createVocabularyView()
+        meetingsView = createMeetingsView()
         
         NSLayoutConstraint.activate([
             sidebarEffectView.topAnchor.constraint(equalTo: mainContentView.topAnchor, constant: 48),
@@ -143,14 +162,15 @@ class SettingsWindow: NSWindow {
     }
     
     enum SettingsSection: Int, CaseIterable {
-        case config, ai, vocabulary, history
+        case config, meetings, ai, vocabulary, history
         
         var title: String {
             let l = L10n.current
             switch self {
             case .config: return l.generalTab
             case .history: return l.historyTab
-            case .ai: return L10n.isFrench ? "Compétences IA" : "AI Skills"
+            case .meetings: return L10n.isFrench ? "Réunions" : "Meetings"
+            case .ai: return l.aiAssistantTab
             case .vocabulary: return l.vocabularyTab
             }
         }
@@ -159,6 +179,7 @@ class SettingsWindow: NSWindow {
             switch self {
             case .config: return "gearshape.fill"
             case .history: return "clock.arrow.circlepath"
+            case .meetings: return "person.3.fill"
             case .ai: return "wand.and.stars"
             case .vocabulary: return "text.book.closed.fill"
             }
@@ -170,6 +191,7 @@ class SettingsWindow: NSWindow {
         switch section {
         case .config: targetView = generalView
         case .history: targetView = historyView
+        case .meetings: targetView = meetingsView
         case .ai: targetView = aiView
         case .vocabulary: targetView = vocabularyView
         }
@@ -293,15 +315,16 @@ class SettingsWindow: NSWindow {
         cardsStack.addArrangedSubview(pttCard)
         cardsStack.addArrangedSubview(toggleCard)
         
-        NSLayoutConstraint.activate([
-            cardsStack.heightAnchor.constraint(equalToConstant: 140),
-            cardsStack.widthAnchor.constraint(equalToConstant: 480)
-        ])
-        
         let cardsRow = NSStackView(views: [cardsStack])
         cardsRow.translatesAutoresizingMaskIntoConstraints = false
-        cardsRow.alignment = .centerX
-        cardsRow.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        cardsRow.alignment = .leading
+        cardsRow.edgeInsets = NSEdgeInsets(top: 12, left: 4, bottom: 12, right: 4)
+        
+        NSLayoutConstraint.activate([
+            cardsStack.heightAnchor.constraint(equalToConstant: 140),
+            cardsStack.leadingAnchor.constraint(equalTo: cardsRow.leadingAnchor),
+            cardsStack.trailingAnchor.constraint(equalTo: cardsRow.trailingAnchor, constant: -16),
+        ])
         
         let pttRow = createSettingRow(
             title: l.magicKey,
@@ -368,6 +391,18 @@ class SettingsWindow: NSWindow {
                     toggle.target = self
                     toggle.action = #selector(self.launchOnLoginChanged)
                     self.launchOnLoginToggle = toggle
+                    return toggle
+                }()
+            ),
+            createSettingRow(
+                title: L10n.isFrench ? "Afficher dans le Dock" : "Show in Dock",
+                description: L10n.isFrench ? "Afficher l'icône de l'application dans le Dock (nécessite un redémarrage)." : "Show application icon in the Dock (requires restart).",
+                control: {
+                    let toggle = NSSwitch()
+                    toggle.translatesAutoresizingMaskIntoConstraints = false
+                    toggle.target = self
+                    toggle.action = #selector(self.showInDockChanged)
+                    self.showInDockToggle = toggle
                     return toggle
                 }()
             ),
@@ -447,19 +482,23 @@ class SettingsWindow: NSWindow {
     }
 
     class SettingsGroupBox: NSView {
+        init(customView: NSView) {
+            super.init(frame: .zero)
+            setupStyle()
+            
+            customView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(customView)
+            NSLayoutConstraint.activate([
+                customView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+                customView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+                customView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+                customView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
+            ])
+        }
+
         init(rows: [NSView]) {
             super.init(frame: .zero)
-            wantsLayer = true
-            layer?.cornerRadius = 10
-            
-            if NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.05).cgColor
-                layer?.borderColor = NSColor(white: 1.0, alpha: 0.1).cgColor
-            } else {
-                layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.5).cgColor
-                layer?.borderColor = NSColor(white: 0.0, alpha: 0.1).cgColor
-            }
-            layer?.borderWidth = 0.5
+            setupStyle()
             
             let stack = NSStackView(views: rows)
             stack.translatesAutoresizingMaskIntoConstraints = false
@@ -485,6 +524,20 @@ class SettingsWindow: NSWindow {
                 stack.trailingAnchor.constraint(equalTo: trailingAnchor),
                 stack.bottomAnchor.constraint(equalTo: bottomAnchor)
             ])
+        }
+
+        private func setupStyle() {
+            wantsLayer = true
+            layer?.cornerRadius = 10
+            
+            if NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.05).cgColor
+                layer?.borderColor = NSColor(white: 1.0, alpha: 0.1).cgColor
+            } else {
+                layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.5).cgColor
+                layer?.borderColor = NSColor(white: 0.0, alpha: 0.1).cgColor
+            }
+            layer?.borderWidth = 0.5
         }
         
         required init?(coder: NSCoder) { fatalError() }
@@ -582,6 +635,139 @@ class SettingsWindow: NSWindow {
                 layer?.backgroundColor = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1.0, alpha: 0.05).cgColor : NSColor(white: 1.0, alpha: 0.5).cgColor
                 onSave?(spokenLabel.stringValue, correctedLabel.stringValue)
             }
+        }
+    }
+    
+    class MeetingRowView: NSTableCellView {
+        private let titleLabel = NSTextField()
+        private let dateLabel = NSTextField()
+        private let infoLabel = NSTextField()
+        private let avatarsStack = NSStackView()
+        private let cardView = NSView()
+        
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            setupUI()
+        }
+        
+        required init?(coder: NSCoder) { fatalError() }
+        
+        private func setupUI() {
+            cardView.translatesAutoresizingMaskIntoConstraints = false
+            cardView.wantsLayer = true
+            cardView.layer?.cornerRadius = 10
+            if NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                cardView.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.05).cgColor
+            } else {
+                cardView.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.5).cgColor
+            }
+            addSubview(cardView)
+            
+            titleLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
+            titleLabel.textColor = .labelColor
+            titleLabel.isEditable = false
+            titleLabel.isSelectable = false
+            titleLabel.drawsBackground = false
+            titleLabel.isBordered = false
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            
+            dateLabel.font = NSFont.systemFont(ofSize: 11)
+            dateLabel.textColor = .secondaryLabelColor
+            dateLabel.isEditable = false
+            dateLabel.isSelectable = false
+            dateLabel.drawsBackground = false
+            dateLabel.isBordered = false
+            dateLabel.translatesAutoresizingMaskIntoConstraints = false
+            
+            infoLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            infoLabel.textColor = .controlAccentColor
+            infoLabel.isEditable = false
+            infoLabel.isSelectable = false
+            infoLabel.drawsBackground = false
+            infoLabel.isBordered = false
+            infoLabel.translatesAutoresizingMaskIntoConstraints = false
+            
+            avatarsStack.orientation = .horizontal
+            avatarsStack.spacing = -8 // Overlapping avatars
+            avatarsStack.translatesAutoresizingMaskIntoConstraints = false
+            
+            cardView.addSubview(titleLabel)
+            cardView.addSubview(dateLabel)
+            cardView.addSubview(infoLabel)
+            cardView.addSubview(avatarsStack)
+            
+            NSLayoutConstraint.activate([
+                cardView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+                cardView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+                cardView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+                cardView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+                
+                titleLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 12),
+                titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+                titleLabel.trailingAnchor.constraint(equalTo: infoLabel.leadingAnchor, constant: -12),
+                
+                dateLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+                dateLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+                
+                infoLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+                infoLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
+                
+                avatarsStack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -12),
+                avatarsStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16)
+            ])
+        }
+        
+        func configure(meeting: Meeting) {
+            titleLabel.stringValue = meeting.title
+            dateLabel.stringValue = meeting.date.formatted(date: .long, time: .shortened)
+            infoLabel.stringValue = "\(Int(meeting.duration / 60)) min • \(meeting.segments.count) segments"
+            
+            refreshAvatars(for: meeting)
+        }
+        
+        private func refreshAvatars(for meeting: Meeting) {
+            avatarsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            
+            let resolvedProfiles = meeting.participantIds.prefix(4).compactMap { id in
+                SpeakerEnrollmentManager.shared.profiles.first { $0.id == id }
+            }
+            for profile in resolvedProfiles {
+                let avatar = createAvatar(for: profile)
+                avatarsStack.addArrangedSubview(avatar)
+            }
+            
+            if meeting.participantIds.count > 4 {
+                let more = NSTextField(labelWithString: "+\(meeting.participantIds.count - 4)")
+                more.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+                more.textColor = .secondaryLabelColor
+                avatarsStack.addArrangedSubview(more)
+            }
+        }
+        
+        private func createAvatar(for profile: SpeakerProfile) -> NSView {
+            let container = NSView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.widthAnchor.constraint(equalToConstant: 24).isActive = true
+            container.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            container.wantsLayer = true
+            container.layer?.backgroundColor = NSColor(hex: profile.colorHex)?.cgColor ?? NSColor.systemBlue.cgColor
+            container.layer?.cornerRadius = 12
+            container.layer?.borderWidth = 1.5
+            container.layer?.borderColor = NSColor.windowBackgroundColor.cgColor
+            
+            let label = NSTextField(labelWithString: profile.initials)
+            label.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+            label.textColor = .white
+            label.alignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(label)
+            
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+            ])
+            
+            return container
         }
     }
     
@@ -726,121 +912,346 @@ class SettingsWindow: NSWindow {
     
     
     private func createAIView() -> NSView {
-    let container = NSView()
-    
-    let scrollView = NSScrollView()
-    scrollView.translatesAutoresizingMaskIntoConstraints = false
-    scrollView.hasVerticalScroller = true
-    scrollView.drawsBackground = false
-    scrollView.autohidesScrollers = true
-    
-    let containerView = NSView()
-    containerView.translatesAutoresizingMaskIntoConstraints = false
-    scrollView.documentView = containerView
-    
-    let mainStack = NSStackView()
-    mainStack.translatesAutoresizingMaskIntoConstraints = false
-    mainStack.orientation = .vertical
-    mainStack.alignment = .leading
-    mainStack.spacing = 24
-    mainStack.edgeInsets = NSEdgeInsets(top: 40, left: 40, bottom: 40, right: 40)
-    containerView.addSubview(mainStack)
-    
-    NSLayoutConstraint.activate([
-        mainStack.topAnchor.constraint(equalTo: containerView.topAnchor),
-        mainStack.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-        mainStack.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-        mainStack.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-        mainStack.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+        let container = NSView()
         
-        containerView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-        containerView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-        containerView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor)
-    ])
-    
-    container.addSubview(scrollView)
-    NSLayoutConstraint.activate([
-        scrollView.topAnchor.constraint(equalTo: container.topAnchor),
-        scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-    ])
-    
-    // 1. Header & Intro
-    let headerStack = NSStackView()
-    headerStack.orientation = .horizontal
-    headerStack.distribution = .equalSpacing
-    headerStack.translatesAutoresizingMaskIntoConstraints = false
-    
-    let title = createMainTitle(L10n.isFrench ? "Compétences IA" : "AI Skills")
-    headerStack.addArrangedSubview(title)
-    
-    let addBtn = NSButton(title: "", target: self, action: #selector(addAISkill))
-    addBtn.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: "Add Skill")
-    addBtn.bezelStyle = .recessed
-    addBtn.isBordered = false
-    addBtn.contentTintColor = .controlAccentColor
-    addBtn.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-    headerStack.addArrangedSubview(addBtn)
-    
-    mainStack.addArrangedSubview(headerStack)
-    NSLayoutConstraint.activate([
-        headerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -40)
-    ])
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
+        
+        let containerView = NSView()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = containerView
+        
+        let mainStack = NSStackView()
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.orientation = .vertical
+        mainStack.alignment = .leading
+        mainStack.spacing = 24
+        mainStack.edgeInsets = NSEdgeInsets(top: 40, left: 40, bottom: 40, right: 40)
+        containerView.addSubview(mainStack)
+        
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: containerView.topAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            mainStack.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            mainStack.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            mainStack.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
+            containerView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            containerView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor)
+        ])
+        
+        container.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        
+        // 1. Header
+        let title = createMainTitle(l.aiAssistantTab)
+        mainStack.addArrangedSubview(title)
+        
+        // 2. Provider Selection
+        mainStack.addArrangedSubview(createSectionHeader(l.llmProviderLabel))
+        
+        let providerBox = SettingsGroupBox(rows: [
+            createSettingRow(
+                title: l.aiAssistantModel,
+                description: L10n.isFrench ? "Choisissez le modèle d'IA" : "Choose the AI model",
+                control: {
+                    let popup = NSPopUpButton()
+                    popup.translatesAutoresizingMaskIntoConstraints = false
+                    popup.target = self
+                    popup.action = #selector(llmProviderChanged(_:))
+                    self.llmProviderPopup = popup
+                    
+                    // Populate
+                    for provider in SettingsManager.LLMProvider.allCases {
+                        popup.addItem(withTitle: provider.displayName)
+                        popup.lastItem?.representedObject = provider
+                    }
+                    
+                    // Select current
+                    let current = SettingsManager.shared.llmProvider
+                    if let idx = SettingsManager.LLMProvider.allCases.firstIndex(of: current) {
+                        popup.selectItem(at: idx)
+                    }
+                    
+                    return popup
+                }()
+            )
+        ])
+        mainStack.addArrangedSubview(providerBox)
+        providerBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        
+        // 2b. Gemini Model Selection (only visible when Google is selected)
+        let geminiModelSettingBox = SettingsGroupBox(rows: [
+            createSettingRow(
+                title: L10n.isFrench ? "Modèle Gemini" : "Gemini Model",
+                description: L10n.isFrench ? "Choisissez le modèle Gemini à utiliser" : "Choose which Gemini model to use",
+                control: {
+                    let popup = NSPopUpButton()
+                    popup.translatesAutoresizingMaskIntoConstraints = false
+                    popup.target = self
+                    popup.action = #selector(geminiModelChanged(_:))
+                    self.geminiModelPopup = popup
+                    
+                    let currentModelId = SettingsManager.shared.geminiModelId
+                    for model in Constants.GeminiModel.allModels {
+                        popup.addItem(withTitle: model.displayName)
+                        popup.lastItem?.representedObject = model.id
+                        if model.id == currentModelId {
+                            popup.select(popup.lastItem)
+                        }
+                    }
+                    
+                    return popup
+                }()
+            )
+        ])
+        self.geminiModelBox = geminiModelSettingBox
+        geminiModelSettingBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        geminiModelSettingBox.isHidden = (SettingsManager.shared.llmProvider != .google)
+        mainStack.addArrangedSubview(geminiModelSettingBox)
+        
+        // 2c. OpenAI Model Selection (only visible when OpenAI is selected)
+        let openaiModelSettingBox = SettingsGroupBox(rows: [
+            createSettingRow(
+                title: L10n.isFrench ? "Modèle OpenAI" : "OpenAI Model",
+                description: L10n.isFrench ? "Choisissez le modèle OpenAI à utiliser" : "Choose which OpenAI model to use",
+                control: {
+                    let popup = NSPopUpButton()
+                    popup.translatesAutoresizingMaskIntoConstraints = false
+                    popup.target = self
+                    popup.action = #selector(openaiModelChanged(_:))
+                    self.openaiModelPopup = popup
+                    
+                    let currentModelId = SettingsManager.shared.openaiModelId
+                    for model in Constants.OpenAIModel.allModels {
+                        popup.addItem(withTitle: model.displayName)
+                        popup.lastItem?.representedObject = model.id
+                        if model.id == currentModelId {
+                            popup.select(popup.lastItem)
+                        }
+                    }
+                    
+                    return popup
+                }()
+            )
+        ])
+        self.openaiModelBox = openaiModelSettingBox
+        openaiModelSettingBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        openaiModelSettingBox.isHidden = (SettingsManager.shared.llmProvider != .openai)
+        mainStack.addArrangedSubview(openaiModelSettingBox)
+        
+        // 2d. Anthropic Model Selection (only visible when Anthropic is selected)
+        let anthropicModelSettingBox = SettingsGroupBox(rows: [
+            createSettingRow(
+                title: L10n.isFrench ? "Modèle Anthropic" : "Anthropic Model",
+                description: L10n.isFrench ? "Choisissez le modèle Anthropic à utiliser" : "Choose which Anthropic model to use",
+                control: {
+                    let popup = NSPopUpButton()
+                    popup.translatesAutoresizingMaskIntoConstraints = false
+                    popup.target = self
+                    popup.action = #selector(anthropicModelChanged(_:))
+                    self.anthropicModelPopup = popup
+                    
+                    let currentModelId = SettingsManager.shared.anthropicModelId
+                    for model in Constants.AnthropicModel.allModels {
+                        popup.addItem(withTitle: model.displayName)
+                        popup.lastItem?.representedObject = model.id
+                        if model.id == currentModelId {
+                            popup.select(popup.lastItem)
+                        }
+                    }
+                    
+                    return popup
+                }()
+            )
+        ])
+        self.anthropicModelBox = anthropicModelSettingBox
+        anthropicModelSettingBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        anthropicModelSettingBox.isHidden = (SettingsManager.shared.llmProvider != .anthropic)
+        mainStack.addArrangedSubview(anthropicModelSettingBox)
+        
+        // 3. API Key Section
+        self.apiKeyStack = NSStackView()
+        apiKeyStack.translatesAutoresizingMaskIntoConstraints = false
+        apiKeyStack.orientation = .vertical
+        apiKeyStack.alignment = .leading
+        apiKeyStack.spacing = 24
+        
+        let apiKeyContent = NSStackView()
+        apiKeyContent.orientation = .vertical
+        apiKeyContent.alignment = .leading
+        apiKeyContent.spacing = 10
+        apiKeyContent.translatesAutoresizingMaskIntoConstraints = false
+        
+        let apiLabelStack = NSStackView()
+        apiLabelStack.orientation = .vertical
+        apiLabelStack.alignment = .leading
+        apiLabelStack.spacing = 2
+        
+        let apiTitle = NSTextField(labelWithString: l.apiKeyLabel)
+        apiTitle.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        
+        let apiDesc = NSTextField(labelWithString: L10n.isFrench ? "Votre clé API privée (stockée localement)" : "Your private API Key (stored locally)")
+        apiDesc.font = NSFont.systemFont(ofSize: 11)
+        apiDesc.textColor = .secondaryLabelColor
+        
+        apiLabelStack.addArrangedSubview(apiTitle)
+        apiLabelStack.addArrangedSubview(apiDesc)
+        
+        let fieldRow = NSStackView()
+        fieldRow.orientation = .horizontal
+        fieldRow.alignment = .centerY
+        fieldRow.spacing = 12
+        fieldRow.translatesAutoresizingMaskIntoConstraints = false
+        
+        let field = NSTextField()
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.target = self
+        field.action = #selector(apiKeyChanged(_:))
+        field.delegate = self
+        field.placeholderString = "sk-..."
+        field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) 
+        self.apiKeyField = field
+        
+        fieldRow.addArrangedSubview(field)
+        
+        apiKeyContent.addArrangedSubview(apiLabelStack)
+        apiKeyContent.addArrangedSubview(fieldRow)
+        
+        let apiKeyBox = SettingsGroupBox(customView: apiKeyContent)
+        
+        NSLayoutConstraint.activate([
+            field.heightAnchor.constraint(equalToConstant: 28),
+            fieldRow.widthAnchor.constraint(equalTo: apiKeyContent.widthAnchor)
+        ])
+        apiKeyBox.widthAnchor.constraint(equalToConstant: 580).isActive = true
+        
+        let validationStack = NSStackView()
+        validationStack.orientation = .horizontal
+        validationStack.spacing = 12
+        
+        let validateBtn = NSButton(title: "Test Connection", target: self, action: #selector(testAPIConnection))
+        validateBtn.bezelStyle = .rounded
+        
+        self.statusIndicator = NSImageView()
+        statusIndicator.translatesAutoresizingMaskIntoConstraints = false
+        statusIndicator.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        statusIndicator.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        statusIndicator.isHidden = true
+        
+        self.cloudModelLabel = NSTextField(labelWithString: "")
+        cloudModelLabel.font = NSFont.systemFont(ofSize: 11)
+        cloudModelLabel.textColor = .secondaryLabelColor
+        
+        self.localModelLabel = NSTextField(labelWithString: "")
+        localModelLabel.isHidden = true
 
-    // 2. Coming Soon Placeholder
-    let comingSoonContainer = NSStackView()
-    comingSoonContainer.orientation = .vertical
-    comingSoonContainer.alignment = .centerX
-    comingSoonContainer.spacing = 20
-    comingSoonContainer.translatesAutoresizingMaskIntoConstraints = false
+        validationStack.addArrangedSubview(validateBtn)
+        validationStack.addArrangedSubview(statusIndicator)
+        validationStack.addArrangedSubview(cloudModelLabel)
+        
+        apiKeyStack.addArrangedSubview(createSectionHeader("Configuration API"))
+        apiKeyStack.addArrangedSubview(apiKeyBox)
+        apiKeyStack.addArrangedSubview(validationStack)
+        
+        mainStack.addArrangedSubview(apiKeyStack)
+        
+        // 4. Custom Skills Section
+        mainStack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "Compétences Personnalisées" : "Custom AI Skills"))
+        
+        self.aiModesStack = NSStackView()
+        aiModesStack.translatesAutoresizingMaskIntoConstraints = false
+        aiModesStack.orientation = .vertical
+        aiModesStack.alignment = .centerX
+        aiModesStack.spacing = 8
+        mainStack.addArrangedSubview(aiModesStack)
+        
+        // Add Button
+        let addBtn = NSButton(title: L10n.isFrench ? "Ajouter une compétence" : "Add AI Skill", target: self, action: #selector(addAISkill))
+        addBtn.bezelStyle = .rounded
+        mainStack.addArrangedSubview(addBtn)
+        
+        // Update visibility based on initial state
+        updateAIViewVisibility()
+        
+        return container
+    }
     
-    let icon = NSImageView(image: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil) ?? NSImage())
-    icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 48, weight: .regular)
-    icon.contentTintColor = .tertiaryLabelColor
+
     
-    let comingSoonTitle = NSTextField(labelWithString: L10n.isFrench ? "Bientôt disponible" : "Coming Soon")
-    comingSoonTitle.font = NSFont.systemFont(ofSize: 20, weight: .bold)
-    comingSoonTitle.textColor = .secondaryLabelColor
+    @objc private func testAPIConnection() {
+        let provider = SettingsManager.shared.llmProvider
+        let key = self.apiKeyField.stringValue
+        
+        statusIndicator.isHidden = false
+        statusIndicator.image = NSImage(systemSymbolName: "circle.dotted", accessibilityDescription: "Checking")
+        statusIndicator.contentTintColor = .secondaryLabelColor
+        
+        Task {
+            do {
+                let (isValid, modelName) = try await LLMManager.shared.validateApiKey(provider: provider, apiKey: key)
+                DispatchQueue.main.async {
+                    if isValid {
+                        self.statusIndicator.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Valid")
+                        self.statusIndicator.contentTintColor = .systemGreen
+                        
+                        if let modelName = modelName {
+                             self.cloudModelLabel.stringValue = "Model: \(modelName)"
+                        }
+                    } else {
+                        self.statusIndicator.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Invalid")
+                        self.statusIndicator.contentTintColor = .systemRed
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.statusIndicator.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Error")
+                    self.statusIndicator.contentTintColor = .systemOrange
+                }
+            }
+        }
+    }
+
+    @objc private func apiKeyChanged(_ sender: NSTextField) {
+        let provider = SettingsManager.shared.llmProvider
+        let key = sender.stringValue
+        
+        switch provider {
+        case .openai: SettingsManager.shared.openaiApiKey = key
+        case .google: SettingsManager.shared.geminiApiKey = key
+        case .anthropic: SettingsManager.shared.anthropicApiKey = key
+        default: break
+        }
+        
+        // Clear indicator on change
+        statusIndicator.isHidden = true
+    }
     
-    let comingSoonDesc = NSTextField(wrappingLabelWithString: L10n.isFrench 
-        ? "Les compétences IA sont en cours de développement et arriveront dans une prochaine mise à jour."
-        : "AI Skills are currently under development and will arrive in a future update.")
-    comingSoonDesc.font = NSFont.systemFont(ofSize: 14)
-    comingSoonDesc.textColor = .tertiaryLabelColor
-    comingSoonDesc.alignment = .center
-    comingSoonDesc.preferredMaxLayoutWidth = 400
-    
-    comingSoonContainer.addArrangedSubview(icon)
-    comingSoonContainer.addArrangedSubview(comingSoonTitle)
-    comingSoonContainer.addArrangedSubview(comingSoonDesc)
-    
-    mainStack.addArrangedSubview(comingSoonContainer)
-    
-    // Center the coming soon view vertically in the remaining space
-    mainStack.addArrangedSubview(NSView()) // Spacer to push content up if needed, or we can use distribution
-    
-    // We need to initialize the properties that were previously set here to avoid nil crashes if accessed elsewhere
-    // Although with the UI hidden, they shouldn't be interacted with.
-    // However, let's minimally init them to be safe.
-    self.llmProviderPopup = NSPopUpButton()
-    self.apiKeyField = NSTextField()
-    self.cloudModelLabel = NSTextField()
-    self.statusIndicator = NSImageView()
-    self.apiKeyStack = NSStackView()
-    self.localModelLabel = NSTextField()
-    self.downloadProgressBar = NSProgressIndicator()
-    self.downloadProgressLabel = NSTextField()
-    self.aiModesStack = NSStackView()
-    
-    NSLayoutConstraint.activate([
-        comingSoonContainer.widthAnchor.constraint(equalTo: mainStack.widthAnchor),
-        comingSoonContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 300)
-    ])
-    
-    setupLLMObservers()
-    
-    return container
+    private func updateAIViewVisibility() {
+        let provider = SettingsManager.shared.llmProvider
+        
+        if provider == .none {
+            apiKeyStack.isHidden = true
+        } else {
+            apiKeyStack.isHidden = false
+            
+            // Populate field
+            switch provider {
+            case .openai: apiKeyField.stringValue = SettingsManager.shared.openaiApiKey
+            case .google: apiKeyField.stringValue = SettingsManager.shared.geminiApiKey
+            case .anthropic: apiKeyField.stringValue = SettingsManager.shared.anthropicApiKey
+            default: apiKeyField.stringValue = ""
+            }
+        }
     }
     
     @objc private func toggleLocalAI(_ sender: NSSwitch) {
@@ -1019,7 +1430,673 @@ private func createHistoryView() -> NSView {
         return container
     }
     
-    private func createVocabularyView() -> NSView {
+    private func createMeetingsView() -> NSView {
+        let container = NSView()
+        
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        
+        let documentView = NSView()
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = documentView
+        container.addSubview(scroll)
+        
+        let mainStack = NSStackView()
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.orientation = .vertical
+        mainStack.alignment = .centerX
+        mainStack.spacing = 32
+        mainStack.edgeInsets = NSEdgeInsets(top: 40, left: 40, bottom: 40, right: 40)
+        documentView.addSubview(mainStack)
+        
+        // ═══════════════════════════════════════
+        // SECTION A — Big Start/Stop Button
+        // ═══════════════════════════════════════
+        let buttonSection = NSView()
+        buttonSection.translatesAutoresizingMaskIntoConstraints = false
+        buttonSection.wantsLayer = true
+        buttonSection.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.4).cgColor
+        buttonSection.layer?.cornerRadius = 16
+        
+        meetingStartButton = NSButton()
+        meetingStartButton.translatesAutoresizingMaskIntoConstraints = false
+        meetingStartButton.bezelStyle = .rounded
+        meetingStartButton.isBordered = false
+        meetingStartButton.wantsLayer = true
+        meetingStartButton.layer?.cornerRadius = 28
+        meetingStartButton.target = self
+        meetingStartButton.action = #selector(toggleMeetingAction)
+        
+        updateMeetingButtonState()
+        
+        buttonSection.addSubview(meetingStartButton)
+        
+        NSLayoutConstraint.activate([
+            buttonSection.heightAnchor.constraint(equalToConstant: 120),
+            meetingStartButton.centerXAnchor.constraint(equalTo: buttonSection.centerXAnchor),
+            meetingStartButton.centerYAnchor.constraint(equalTo: buttonSection.centerYAnchor),
+            meetingStartButton.widthAnchor.constraint(equalToConstant: 320),
+            meetingStartButton.heightAnchor.constraint(equalToConstant: 56)
+        ])
+        
+        mainStack.addArrangedSubview(buttonSection)
+        buttonSection.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -80).isActive = true
+        
+        // ═══════════════════════════════════════
+        // SECTION B — Speaker Directory
+        // ═══════════════════════════════════════
+        let dirSection = NSView()
+        dirSection.translatesAutoresizingMaskIntoConstraints = false
+        dirSection.wantsLayer = true
+        dirSection.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor
+        dirSection.layer?.cornerRadius = 12
+        
+        let dirHeader = NSStackView()
+        dirHeader.translatesAutoresizingMaskIntoConstraints = false
+        dirHeader.orientation = .horizontal
+        dirHeader.alignment = .centerY
+        dirHeader.spacing = 8
+        
+        let dirTitle = NSTextField(labelWithString: L10n.isFrench ? "Participants Enregistrés" : "Enrolled Speakers")
+        dirTitle.font = NSFont.systemFont(ofSize: 15, weight: .bold)
+        dirTitle.textColor = .labelColor
+        dirHeader.addArrangedSubview(dirTitle)
+        
+        let dirSpacer = NSView()
+        dirSpacer.translatesAutoresizingMaskIntoConstraints = false
+        dirHeader.addArrangedSubview(dirSpacer)
+        
+        let addSpeakerBtn = NSButton(title: L10n.isFrench ? "＋ Ajouter" : "＋ Add", target: self, action: #selector(showEnrollmentModal))
+        addSpeakerBtn.bezelStyle = .rounded
+        addSpeakerBtn.controlSize = .regular
+        addSpeakerBtn.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        dirHeader.addArrangedSubview(addSpeakerBtn)
+        
+        speakerDirectoryStack = NSStackView()
+        speakerDirectoryStack.translatesAutoresizingMaskIntoConstraints = false
+        speakerDirectoryStack.orientation = .vertical
+        speakerDirectoryStack.alignment = .leading
+        speakerDirectoryStack.spacing = 8
+        
+        dirSection.addSubview(dirHeader)
+        dirSection.addSubview(speakerDirectoryStack)
+        
+        NSLayoutConstraint.activate([
+            dirHeader.topAnchor.constraint(equalTo: dirSection.topAnchor, constant: 16),
+            dirHeader.leadingAnchor.constraint(equalTo: dirSection.leadingAnchor, constant: 16),
+            dirHeader.trailingAnchor.constraint(equalTo: dirSection.trailingAnchor, constant: -16),
+            
+            speakerDirectoryStack.topAnchor.constraint(equalTo: dirHeader.bottomAnchor, constant: 16),
+            speakerDirectoryStack.leadingAnchor.constraint(equalTo: dirSection.leadingAnchor, constant: 16),
+            speakerDirectoryStack.trailingAnchor.constraint(equalTo: dirSection.trailingAnchor, constant: -16),
+            speakerDirectoryStack.bottomAnchor.constraint(equalTo: dirSection.bottomAnchor, constant: -16)
+        ])
+        
+        mainStack.addArrangedSubview(dirSection)
+        dirSection.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -80).isActive = true
+        
+        // ═══════════════════════════════════════
+        // SECTION C — Meeting History
+        // ═══════════════════════════════════════
+        let histSection = NSView()
+        histSection.translatesAutoresizingMaskIntoConstraints = false
+        
+        let histTitle = NSTextField(labelWithString: L10n.isFrench ? "Historique des Réunions" : "Meeting History")
+        histTitle.font = NSFont.systemFont(ofSize: 15, weight: .bold)
+        histTitle.textColor = .labelColor
+        histTitle.translatesAutoresizingMaskIntoConstraints = false
+        histSection.addSubview(histTitle)
+        
+        meetingsTableView = NSTableView()
+        meetingsTableView.delegate = self
+        meetingsTableView.dataSource = self
+        meetingsTableView.backgroundColor = .clear
+        meetingsTableView.usesAlternatingRowBackgroundColors = false
+        meetingsTableView.rowHeight = 70
+        meetingsTableView.intercellSpacing = NSSize(width: 0, height: 10)
+        meetingsTableView.headerView = nil
+        meetingsTableView.selectionHighlightStyle = .regular
+        meetingsTableView.target = self
+        meetingsTableView.doubleAction = #selector(viewSelectedMeetingReport)
+        
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("meeting"))
+        col.resizingMask = .autoresizingMask
+        meetingsTableView.addTableColumn(col)
+        
+        let meetingScroll = NSScrollView()
+        meetingScroll.translatesAutoresizingMaskIntoConstraints = false
+        meetingScroll.hasVerticalScroller = true
+        meetingScroll.autohidesScrollers = true
+        meetingScroll.borderType = .noBorder
+        meetingScroll.drawsBackground = false
+        meetingScroll.documentView = meetingsTableView
+        histSection.addSubview(meetingScroll)
+        
+        // Empty State
+        let emptyState = NSStackView()
+        emptyState.orientation = .vertical
+        emptyState.alignment = .centerX
+        emptyState.spacing = 12
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+        
+        let emptyIcon = NSImageView(image: NSImage(systemSymbolName: "calendar.badge.plus", accessibilityDescription: nil)!)
+        emptyIcon.contentTintColor = .tertiaryLabelColor
+        emptyIcon.symbolConfiguration = .init(pointSize: 36, weight: .regular)
+        
+        let emptyTitle = NSTextField(labelWithString: L10n.isFrench ? "Aucune réunion" : "No Meetings Yet")
+        emptyTitle.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        emptyTitle.textColor = .secondaryLabelColor
+        
+        let emptySub = NSTextField(labelWithString: L10n.isFrench ? "Cliquez sur le bouton ci-dessus pour commencer." : "Click the button above to start a meeting.")
+        emptySub.font = NSFont.systemFont(ofSize: 12)
+        emptySub.textColor = .tertiaryLabelColor
+        
+        emptyState.addArrangedSubview(emptyIcon)
+        emptyState.addArrangedSubview(emptyTitle)
+        emptyState.addArrangedSubview(emptySub)
+        histSection.addSubview(emptyState)
+        self.meetingsEmptyStateView = emptyState
+        
+        NSLayoutConstraint.activate([
+            histTitle.topAnchor.constraint(equalTo: histSection.topAnchor),
+            histTitle.leadingAnchor.constraint(equalTo: histSection.leadingAnchor),
+            
+            meetingScroll.topAnchor.constraint(equalTo: histTitle.bottomAnchor, constant: 12),
+            meetingScroll.leadingAnchor.constraint(equalTo: histSection.leadingAnchor),
+            meetingScroll.trailingAnchor.constraint(equalTo: histSection.trailingAnchor),
+            meetingScroll.bottomAnchor.constraint(equalTo: histSection.bottomAnchor),
+            meetingScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            
+            emptyState.centerXAnchor.constraint(equalTo: meetingScroll.centerXAnchor),
+            emptyState.centerYAnchor.constraint(equalTo: meetingScroll.centerYAnchor)
+        ])
+        
+        mainStack.addArrangedSubview(histSection)
+        histSection.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -80).isActive = true
+        
+        // ═══════════════════════════════════════
+        // Layout
+        // ═══════════════════════════════════════
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            
+            documentView.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            
+            mainStack.topAnchor.constraint(equalTo: documentView.topAnchor),
+            mainStack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
+            mainStack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
+            mainStack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
+            mainStack.widthAnchor.constraint(equalTo: scroll.widthAnchor)
+        ])
+        
+        // Load data
+        refreshSpeakerDirectory()
+        loadMeetings()
+        
+        return container
+    }
+    
+    // MARK: - Meeting Button State
+    
+    private func updateMeetingButtonState() {
+        let isActive = MeetingManager.shared.isMeetingActive
+        
+        if isActive {
+            meetingStartButton.title = L10n.isFrench ? "⏹  Terminer la Réunion" : "⏹  End Meeting"
+            meetingStartButton.contentTintColor = .white
+            meetingStartButton.layer?.backgroundColor = NSColor.systemRed.cgColor
+            
+            // Pulse animation
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1.0
+            pulse.toValue = 0.85
+            pulse.duration = 1.0
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            meetingStartButton.layer?.add(pulse, forKey: "recordPulse")
+        } else {
+            meetingStartButton.title = L10n.isFrench ? "🎙️  Démarrer une Réunion" : "🎙️  Start Meeting"
+            meetingStartButton.contentTintColor = .white
+            meetingStartButton.layer?.backgroundColor = Constants.brandBlue.cgColor
+            meetingStartButton.layer?.removeAnimation(forKey: "recordPulse")
+        }
+        
+        meetingStartButton.font = NSFont.systemFont(ofSize: 17, weight: .bold)
+    }
+    
+    @objc private func toggleMeetingAction() {
+        if MeetingManager.shared.isMeetingActive {
+            // Stop meeting
+            MeetingManager.shared.stopMeeting()
+            updateMeetingButtonState()
+            
+            // Refresh history after processing
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.loadMeetings()
+            }
+        } else {
+            // Show modal to start meeting
+            showStartMeetingModal()
+        }
+    }
+    
+    private func showStartMeetingModal() {
+        let alert = NSAlert()
+        alert.messageText = L10n.isFrench ? "Nouvelle Réunion" : "New Meeting"
+        alert.informativeText = L10n.isFrench ? "Entrez un nom pour cette réunion" : "Enter a name for this meeting"
+        
+        let inputField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 28))
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        inputField.placeholderString = formatter.string(from: Date())
+        inputField.font = NSFont.systemFont(ofSize: 14)
+        alert.accessoryView = inputField
+        
+        alert.addButton(withTitle: L10n.isFrench ? "Démarrer" : "Start")
+        alert.addButton(withTitle: L10n.isFrench ? "Annuler" : "Cancel")
+        
+        alert.window.initialFirstResponder = inputField
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            var title = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if title.isEmpty {
+                title = formatter.string(from: Date())
+            }
+            
+            MeetingManager.shared.startMeeting(title: title)
+            updateMeetingButtonState()
+        }
+    }
+    
+    // MARK: - Speaker Directory
+    
+    private func refreshSpeakerDirectory() {
+        speakerDirectoryStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        
+        let profiles = SpeakerEnrollmentManager.shared.profiles
+        
+        if profiles.isEmpty {
+            let empty = NSTextField(labelWithString: L10n.isFrench ? "Aucun participant enregistré. Ajoutez des participants pour les identifier automatiquement." : "No enrolled speakers. Add participants to automatically identify them.")
+            empty.font = NSFont.systemFont(ofSize: 12)
+            empty.textColor = .tertiaryLabelColor
+            empty.preferredMaxLayoutWidth = 400
+            speakerDirectoryStack.addArrangedSubview(empty)
+            return
+        }
+        
+        // Group speakers
+        let groups = SpeakerEnrollmentManager.shared.groupedProfiles
+        
+        for group in groups {
+            // Group header
+            let groupHeader = NSTextField(labelWithString: group.name.uppercased())
+            groupHeader.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+            groupHeader.textColor = .tertiaryLabelColor
+            speakerDirectoryStack.addArrangedSubview(groupHeader)
+            
+            for profile in group.members {
+                let row = createSpeakerDirectoryRow(profile: profile)
+                speakerDirectoryStack.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: speakerDirectoryStack.widthAnchor).isActive = true
+            }
+            
+            // Separator
+            let sep = NSView()
+            sep.translatesAutoresizingMaskIntoConstraints = false
+            sep.wantsLayer = true
+            sep.layer?.backgroundColor = NSColor.separatorColor.cgColor
+            sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+            speakerDirectoryStack.addArrangedSubview(sep)
+            sep.widthAnchor.constraint(equalTo: speakerDirectoryStack.widthAnchor).isActive = true
+        }
+    }
+    
+    private func createSpeakerDirectoryRow(profile: SpeakerProfile) -> NSView {
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Avatar
+        let avatar = NSView()
+        avatar.wantsLayer = true
+        avatar.layer?.backgroundColor = NSColor(hex: profile.colorHex)?.cgColor ?? NSColor.systemBlue.cgColor
+        avatar.layer?.cornerRadius = 16
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        
+        let initials = NSTextField(labelWithString: profile.initials)
+        initials.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+        initials.textColor = .white
+        initials.alignment = .center
+        initials.translatesAutoresizingMaskIntoConstraints = false
+        avatar.addSubview(initials)
+        
+        // Name + Role
+        let nameLabel = NSTextField(labelWithString: profile.name)
+        nameLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        let roleLabel = NSTextField(labelWithString: profile.role.isEmpty ? profile.groupName : profile.role)
+        roleLabel.font = NSFont.systemFont(ofSize: 11)
+        roleLabel.textColor = .secondaryLabelColor
+        roleLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Delete button
+        let deleteBtn = NSButton()
+        deleteBtn.translatesAutoresizingMaskIntoConstraints = false
+        deleteBtn.bezelStyle = .circular
+        deleteBtn.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
+        deleteBtn.isBordered = false
+        deleteBtn.contentTintColor = .systemRed
+        deleteBtn.target = self
+        deleteBtn.action = #selector(deleteSpeakerAction(_:))
+        deleteBtn.tag = profile.id.hashValue
+        // Store the profile ID
+        deleteBtn.identifier = NSUserInterfaceItemIdentifier(profile.id)
+        
+        row.addSubview(avatar)
+        row.addSubview(nameLabel)
+        row.addSubview(roleLabel)
+        row.addSubview(deleteBtn)
+        
+        NSLayoutConstraint.activate([
+            row.heightAnchor.constraint(equalToConstant: 44),
+            
+            avatar.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            avatar.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: 32),
+            avatar.heightAnchor.constraint(equalToConstant: 32),
+            
+            initials.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
+            initials.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+            
+            nameLabel.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 12),
+            nameLabel.topAnchor.constraint(equalTo: row.topAnchor, constant: 6),
+            
+            roleLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            roleLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 1),
+            
+            deleteBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -4),
+            deleteBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            deleteBtn.widthAnchor.constraint(equalToConstant: 24),
+            deleteBtn.heightAnchor.constraint(equalToConstant: 24)
+        ])
+        
+        return row
+    }
+    
+    @objc private func deleteSpeakerAction(_ sender: NSButton) {
+        guard let profileId = sender.identifier?.rawValue else { return }
+        SpeakerEnrollmentManager.shared.deleteProfile(id: profileId)
+        refreshSpeakerDirectory()
+    }
+    
+    @objc private func showEnrollmentModal() {
+        let alert = NSAlert()
+        alert.messageText = L10n.isFrench ? "Enregistrer un Participant" : "Enroll a Speaker"
+        alert.informativeText = L10n.isFrench ? "Remplissez les informations et l'utilisateur devra parler pendant 5 secondes." : "Fill in the details. The participant will need to speak for 5 seconds."
+        
+        // Create a form view
+        let formView = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 110))
+        
+        let nameLabel = NSTextField(labelWithString: L10n.isFrench ? "Nom:" : "Name:")
+        nameLabel.frame = NSRect(x: 0, y: 82, width: 60, height: 20)
+        nameLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let nameField = NSTextField(frame: NSRect(x: 65, y: 80, width: 270, height: 24))
+        nameField.placeholderString = L10n.isFrench ? "Prénom Nom" : "First Last"
+        nameField.font = NSFont.systemFont(ofSize: 13)
+        
+        let roleLabel = NSTextField(labelWithString: L10n.isFrench ? "Rôle:" : "Role:")
+        roleLabel.frame = NSRect(x: 0, y: 52, width: 60, height: 20)
+        roleLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let roleField = NSTextField(frame: NSRect(x: 65, y: 50, width: 270, height: 24))
+        roleField.placeholderString = L10n.isFrench ? "ex: Product Manager" : "e.g. Product Manager"
+        roleField.font = NSFont.systemFont(ofSize: 13)
+        
+        let groupLabel = NSTextField(labelWithString: L10n.isFrench ? "Groupe:" : "Group:")
+        groupLabel.frame = NSRect(x: 0, y: 22, width: 60, height: 20)
+        groupLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        
+        let groupField = NSTextField(frame: NSRect(x: 65, y: 20, width: 270, height: 24))
+        groupField.placeholderString = L10n.isFrench ? "ex: Marketing, Dev, Direction" : "e.g. Marketing, Engineering"
+        groupField.font = NSFont.systemFont(ofSize: 13)
+        
+        formView.addSubview(nameLabel)
+        formView.addSubview(nameField)
+        formView.addSubview(roleLabel)
+        formView.addSubview(roleField)
+        formView.addSubview(groupLabel)
+        formView.addSubview(groupField)
+        
+        alert.accessoryView = formView
+        alert.addButton(withTitle: L10n.isFrench ? "Enregistrer la voix" : "Record Voice")
+        alert.addButton(withTitle: L10n.isFrench ? "Annuler" : "Cancel")
+        alert.window.initialFirstResponder = nameField
+        
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let role = roleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let group = groupField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            guard !name.isEmpty else { return }
+            
+            startVoiceEnrollment(name: name, role: role, group: group)
+        }
+    }
+    
+    private func startVoiceEnrollment(name: String, role: String, group: String) {
+        // 1. Ensure models are loaded
+        if TranscriptionManager.shared.diarizerModels == nil {
+             // Show loading indicator overlay
+             let loadingView = NSVisualEffectView()
+             loadingView.material = .hudWindow
+             loadingView.state = .active
+             loadingView.wantsLayer = true
+             loadingView.layer?.cornerRadius = 12
+             loadingView.translatesAutoresizingMaskIntoConstraints = false
+             
+             let spinner = NSProgressIndicator()
+             spinner.style = .spinning
+             spinner.controlSize = .large
+             spinner.translatesAutoresizingMaskIntoConstraints = false
+             loadingView.addSubview(spinner)
+             spinner.startAnimation(nil)
+             
+             let label = NSTextField(labelWithString: L10n.isFrench ? "Chargement des modèles..." : "Loading models...")
+             label.translatesAutoresizingMaskIntoConstraints = false
+             label.font = .systemFont(ofSize: 13, weight: .medium)
+             label.textColor = .labelColor
+             loadingView.addSubview(label)
+             
+             guard let contentView = self.contentView else { return }
+             contentView.addSubview(loadingView)
+             
+             NSLayoutConstraint.activate([
+                 loadingView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+                 loadingView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                 loadingView.widthAnchor.constraint(equalToConstant: 220),
+                 loadingView.heightAnchor.constraint(equalToConstant: 140),
+                 
+                 spinner.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
+                 spinner.centerYAnchor.constraint(equalTo: loadingView.centerYAnchor, constant: -15),
+                 label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 15),
+                 label.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor)
+             ])
+             
+             Task {
+                 do {
+                     try await TranscriptionManager.shared.downloadDiarizerModels()
+                     await MainActor.run {
+                         loadingView.removeFromSuperview()
+                         self.showEnrollmentRecorder(name: name, role: role, group: group)
+                     }
+                 } catch {
+                     await MainActor.run {
+                         loadingView.removeFromSuperview()
+                         let alert = NSAlert()
+                         alert.messageText = L10n.isFrench ? "Erreur" : "Error"
+                         alert.informativeText = error.localizedDescription
+                         alert.runModal()
+                     }
+                 }
+             }
+             return
+        }
+        
+        showEnrollmentRecorder(name: name, role: role, group: group)
+    }
+    
+    private func showEnrollmentRecorder(name: String, role: String, group: String) {
+        guard let contentView = self.contentView else { return }
+        
+        let recorder = EnrollmentRecordingView()
+        recorder.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(recorder)
+        
+        NSLayoutConstraint.activate([
+            recorder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            recorder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            recorder.topAnchor.constraint(equalTo: contentView.topAnchor),
+            recorder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        
+        recorder.onFinish = { [weak self, weak recorder] buffer in
+            recorder?.removeFromSuperview()
+            self?.finishEnrollment(buffer: buffer, name: name, role: role, group: group)
+        }
+        
+        recorder.onCancel = { [weak recorder] in
+            recorder?.removeFromSuperview()
+        }
+        
+        recorder.startRecording()
+    }
+    
+    private func finishEnrollment(buffer: [Float], name: String, role: String, group: String) {
+        // Enforce minimum duration (e.g. 3 seconds ~ 48000 samples at 16kHz)
+        let minSamples = 16000 * 3
+        guard buffer.count >= minSamples else {
+            let alert = NSAlert()
+            alert.messageText = L10n.isFrench ? "Enregistrement trop court" : "Recording too short"
+            alert.informativeText = L10n.isFrench ? "Veuillez parler pendant au moins 3 secondes." : "Please speak for at least 3 seconds."
+            alert.runModal()
+            
+            // Retry? Or just close. Let's offer retry by re-showing recorder.
+            self.showEnrollmentRecorder(name: name, role: role, group: group)
+            return
+        }
+        
+        // Check for silence
+        let maxAmp = buffer.reduce(0) { max($0, abs($1)) }
+        print("📊 Enrollment: Audio max amplitude: \(maxAmp)")
+        if maxAmp < 0.005 { // Increased threshold slightly
+             print("❌ Enrollment: Silence detected (Max Amp: \(maxAmp))")
+             let alert = NSAlert()
+             alert.messageText = L10n.isFrench ? "Aucun son détecté" : "No Audio Detected"
+             alert.informativeText = L10n.isFrench ? "Le volume est trop bas ou le micro est muet. Veuillez vérifier vos réglages." : "Volume too low or microphone muted. Please check settings."
+             alert.runModal()
+             self.showEnrollmentRecorder(name: name, role: role, group: group)
+             return
+        }
+        
+        // Dump audio for debugging
+        let debugPath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/suprasonic_enrollment_debug.wav")
+        saveAudioToWav(buffer: buffer, url: debugPath)
+
+        Task { @MainActor in
+            do {
+                let profile = try await SpeakerEnrollmentManager.shared.enrollSpeaker(
+                    name: name,
+                    role: role,
+                    groupName: group,
+                    audioSamples: buffer
+                )
+                print("✅ Enrollment: Successfully enrolled '\(profile.name)' with \(buffer.count) samples")
+                self.refreshSpeakerDirectory()
+                
+                let alert = NSAlert()
+                alert.messageText = L10n.isFrench ? "✅ Enregistrement réussi" : "✅ Enrollment Successful"
+                alert.informativeText = L10n.isFrench ? "\(name) a été enregistré avec succès." : "\(name) has been enrolled successfully."
+                alert.runModal()
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = L10n.isFrench ? "Échec de l'enregistrement" : "Enrollment Failed"
+                alert.informativeText = error.localizedDescription + "\n\n(Debug audio saved to Downloads/suprasonic_enrollment_debug.wav)"
+                alert.runModal()
+            }
+        }
+    }
+    
+    private func saveAudioToWav(buffer: [Float], url: URL) {
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(buffer.count)) else { return }
+        pcmBuffer.frameLength = AVAudioFrameCount(buffer.count)
+        if let data = pcmBuffer.floatChannelData {
+            data[0].assign(from: buffer, count: buffer.count)
+        }
+        
+        do {
+            let audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
+            try audioFile.write(from: pcmBuffer)
+            print("💾 Debug Audio saved to: \(url.path)")
+        } catch {
+            print("❌ Failed to save debug audio: \(error)")
+        }
+    }
+    
+    // MARK: - Meetings Data
+    
+    @objc private func loadMeetings() {
+        self.meetingsData = MeetingHistoryManager.shared.loadAllMeetings()
+        meetingsTableView.reloadData()
+        
+        if let empty = meetingsEmptyStateView {
+            empty.isHidden = !meetingsData.isEmpty
+        }
+        meetingsTableView.enclosingScrollView?.isHidden = meetingsData.isEmpty
+    }
+    
+    @objc private func viewSelectedMeetingReport() {
+        let row = meetingsTableView.selectedRow
+        guard row >= 0 && row < meetingsData.count else { return }
+        let meeting = meetingsData[row]
+        
+        activeReportWindow?.close()
+        
+        let reportWindow = MeetingDetailWindow(meeting: meeting)
+        reportWindow.isReleasedWhenClosed = false
+        reportWindow.makeKeyAndOrderFront(nil)
+        
+        self.activeReportWindow = reportWindow
+    }
+    
+    @objc private func exportSelectedMeeting() {
+        let row = meetingsTableView.selectedRow
+        guard row >= 0 && row < meetingsData.count else { return }
+        let meeting = meetingsData[row]
+        
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.plainText]
+        savePanel.nameFieldStringValue = "\(meeting.title).txt"
+        
+        savePanel.begin { response in
+            if response == .OK, let url = savePanel.url {
+                try? meeting.finalTranscript.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+private func createVocabularyView() -> NSView {
         let container = NSView()
         
         let mainStack = NSStackView()
@@ -1137,6 +2214,10 @@ private func createHistoryView() -> NSView {
         saveVocabulary()
     }
     
+    func saveVocabularyData() {
+        saveVocabulary()
+    }
+    
     private func saveVocabulary() {
         var mapping: [String: String] = [:]
         for entry in vocabularyData {
@@ -1167,6 +2248,7 @@ private func createHistoryView() -> NSView {
         historyToggle.state = settings.historyEnabled ? .on : .off
         launchOnLoginToggle.state = settings.launchOnLogin ? .on : .off
         muteToggle.state = settings.muteSystemSoundDuringRecording ? .on : .off
+        showInDockToggle.state = settings.showInDock ? .on : .off
         
         // Load hotkey mode
         updateModeCards(settings.hotkeyMode)
@@ -1202,9 +2284,6 @@ private func createHistoryView() -> NSView {
         case .anthropic: 
             apiKeyField.stringValue = settings.anthropicApiKey
             cloudModelLabel.stringValue = "Model: \(Constants.anthropicModelName)"
-        case .local: 
-            apiKeyField.stringValue = ""
-            cloudModelLabel.stringValue = ""
         case .none:
             apiKeyField.stringValue = ""
             cloudModelLabel.stringValue = ""
@@ -1220,44 +2299,95 @@ private func createHistoryView() -> NSView {
         SettingsManager.shared.llmProvider = provider
         updateApiKeyVisibility(for: provider)
         
-        // Unload local model to free RAM if switching to cloud
-        if provider != .local {
-            LLMManager.shared.unload()
-            
-            // Immediately reload Parakeet so it stays in RAM even after MLX cache clear
-            Task {
-                try? await TranscriptionManager.shared.initialize(forceReload: true)
-            }
-        }
-        
         // Load existing key and update model info
         switch provider {
         case .google:
             apiKeyField.stringValue = SettingsManager.shared.geminiApiKey
-            cloudModelLabel.stringValue = "Model: \(Constants.geminiModelName)"
+            let modelId = SettingsManager.shared.geminiModelId
+            let displayName = Constants.GeminiModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+            cloudModelLabel.stringValue = "Model: \(displayName)"
         case .openai:
             apiKeyField.stringValue = SettingsManager.shared.openaiApiKey
-            cloudModelLabel.stringValue = "Model: \(Constants.openaiModelName)"
+            let modelId = SettingsManager.shared.openaiModelId
+            let displayName = Constants.OpenAIModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+            cloudModelLabel.stringValue = "Model: \(displayName)"
         case .anthropic:
             apiKeyField.stringValue = SettingsManager.shared.anthropicApiKey
-            cloudModelLabel.stringValue = "Model: \(Constants.anthropicModelName)"
-        case .local:
-            apiKeyField.stringValue = ""
-            cloudModelLabel.stringValue = ""
+            let modelId = SettingsManager.shared.anthropicModelId
+            let displayName = Constants.AnthropicModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+            cloudModelLabel.stringValue = "Model: \(displayName)"
         case .none:
             apiKeyField.stringValue = ""
             cloudModelLabel.stringValue = ""
         }
         
+        // Clear indicator on change
+        statusIndicator.isHidden = true
+        
+        // Show/hide model selectors
+        geminiModelBox.isHidden = (provider != .google)
+        openaiModelBox.isHidden = (provider != .openai)
+        anthropicModelBox.isHidden = (provider != .anthropic)
+        
         // Trigger validation if key is not empty
         validateCurrentKey()
     }
     
-    @objc private func validateCurrentKey() {
+    @objc private func geminiModelChanged(_ sender: NSPopUpButton) {
+        guard let modelId = sender.selectedItem?.representedObject as? String else { return }
+        SettingsManager.shared.geminiModelId = modelId
+        
+        let displayName = Constants.GeminiModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+        cloudModelLabel.stringValue = "Model: \(displayName)"
+        validateCurrentKey()
+    }
+    
+    @objc private func openaiModelChanged(_ sender: NSPopUpButton) {
+        guard let modelId = sender.selectedItem?.representedObject as? String else { return }
+        SettingsManager.shared.openaiModelId = modelId
+        
+        let displayName = Constants.OpenAIModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+        cloudModelLabel.stringValue = "Model: \(displayName)"
+        validateCurrentKey()
+    }
+    
+    @objc private func anthropicModelChanged(_ sender: NSPopUpButton) {
+        guard let modelId = sender.selectedItem?.representedObject as? String else { return }
+        SettingsManager.shared.anthropicModelId = modelId
+        
+        let displayName = Constants.AnthropicModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
+        cloudModelLabel.stringValue = "Model: \(displayName)"
+        validateCurrentKey()
+    }
+    
+    @objc func showInDockChanged(_ sender: NSSwitch) {
+        SettingsManager.shared.showInDock = (sender.state == .on)
+    }
+
+    func apiKeyChanged(to newValue: String) {
+        let provider = SettingsManager.shared.llmProvider
+        switch provider {
+        case .google: SettingsManager.shared.geminiApiKey = newValue
+        case .openai: SettingsManager.shared.openaiApiKey = newValue
+        case .anthropic: SettingsManager.shared.anthropicApiKey = newValue
+        case .none: break
+        }
+        
+        // Debounce validation
+        validationWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.validateCurrentKey()
+        }
+        validationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+    }
+
+    @objc func validateCurrentKey() {
         let provider = SettingsManager.shared.llmProvider
         let key = apiKeyField.stringValue
         
-        guard provider != .local else {
+        statusIndicator.isHidden = false
+        if provider == .none {
             statusIndicator.contentTintColor = .clear
             return
         }
@@ -1274,11 +2404,15 @@ private func createHistoryView() -> NSView {
         
         Task {
             do {
-                let isValid = try await LLMManager.shared.validateApiKey(provider: provider, apiKey: key)
+                let (isValid, modelName) = try await LLMManager.shared.validateApiKey(provider: provider, apiKey: key)
                 DispatchQueue.main.async { [weak self] in
                     if isValid {
                         self?.statusIndicator.contentTintColor = .systemGreen
                         self?.statusIndicator.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Valid")
+                        
+                        if let modelName = modelName {
+                            self?.cloudModelLabel.stringValue = "Model: \(modelName)"
+                        }
                     } else {
                         self?.statusIndicator.contentTintColor = .systemRed
                         self?.statusIndicator.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Invalid")
@@ -1295,9 +2429,9 @@ private func createHistoryView() -> NSView {
     }
     
     private func updateApiKeyVisibility(for provider: SettingsManager.LLMProvider) {
-        let isLocal = (provider == .local)
-        apiKeyStack.isHidden = isLocal
-        localModelLabel.isHidden = !isLocal
+        let isNone = (provider == .none)
+        apiKeyStack.isHidden = isNone
+        localModelLabel.isHidden = true // Local is removed
     }
     
     private func updateModeCards(_ mode: SettingsManager.HotkeyMode) {
@@ -1422,15 +2556,20 @@ private func createHistoryView() -> NSView {
 extension SettingsWindow: NSTableViewDelegate, NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
         if tableView == vocabularyTableView {
-            // Update EmptyState visibility if it exists (simplification)
             return vocabularyData.count
+        }
+        if tableView == meetingsTableView {
+            return meetingsData.count
         }
         return historyData.count
     }
     
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if tableView == vocabularyTableView {
-            return 44 // Liquid Glass row height
+            return 44
+        }
+        if tableView == meetingsTableView {
+            return 60
         }
         guard row < historyData.count else { return 80 }
         let text = historyData[row].text
@@ -1453,7 +2592,7 @@ extension SettingsWindow: NSTableViewDelegate, NSTableViewDataSource {
             view.onDelete = { [weak self] in
                 self?.vocabularyData.remove(at: row)
                 self?.vocabularyTableView.reloadData()
-                self?.saveVocabulary()
+                self?.saveVocabularyData()
             }
             
             view.onSave = { [weak self] newSpoken, newCorrected in
@@ -1461,13 +2600,24 @@ extension SettingsWindow: NSTableViewDelegate, NSTableViewDataSource {
                 guard row < self.vocabularyData.count else { return }
                 
                 self.vocabularyData[row] = (spoken: newSpoken, corrected: newCorrected)
-                self.saveVocabulary()
-                // No need to reload data if we are just editing in place
+                self.saveVocabularyData()
             }
             
             return view
         }
         
+        if tableView == meetingsTableView {
+            guard row < meetingsData.count else { return nil }
+            let meeting = meetingsData[row]
+            
+            let id = NSUserInterfaceItemIdentifier("MeetingRow")
+            let cell = tableView.makeView(withIdentifier: id, owner: self) as? MeetingRowView ?? MeetingRowView()
+            cell.identifier = id
+            cell.configure(meeting: meeting)
+            return cell
+        }
+        
+        // Default: History Table
         guard row < historyData.count else { return nil }
         let entry = historyData[row]
         
@@ -1853,6 +3003,7 @@ class SidebarItem: NSView {
         // Define Sequoia-style colors
         switch section {
         case .config: iconBg.layer?.backgroundColor = NSColor.systemBlue.cgColor
+        case .meetings: iconBg.layer?.backgroundColor = NSColor.systemTeal.cgColor
         case .history: iconBg.layer?.backgroundColor = NSColor.systemOrange.cgColor
         case .ai: iconBg.layer?.backgroundColor = NSColor.systemPurple.cgColor
         case .vocabulary: iconBg.layer?.backgroundColor = NSColor.systemGreen.cgColor
@@ -2071,20 +3222,7 @@ extension SettingsWindow: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let textField = obj.object as? NSTextField else { return }
         if textField == apiKeyField {
-            let provider = SettingsManager.shared.llmProvider
-            let value = textField.stringValue
-            
-            // Save immediately
-            switch provider {
-            case .google: SettingsManager.shared.geminiApiKey = value
-            case .openai: SettingsManager.shared.openaiApiKey = value
-            case .anthropic: SettingsManager.shared.anthropicApiKey = value
-            case .local, .none: break
-            }
-            
-            // Validate after a small delay (debounce)
-            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(validateCurrentKey), object: nil)
-            self.perform(#selector(validateCurrentKey), with: nil, afterDelay: 1.0)
+            apiKeyChanged(to: textField.stringValue)
         }
     }
     
@@ -2103,7 +3241,7 @@ extension SettingsWindow: NSTextFieldDelegate {
             vocabularyData[row].corrected = textField.stringValue
         }
         
-        saveVocabulary()
+        // saveVocabulary() - removed as it's out of scope here
     }
 }
 
@@ -2119,7 +3257,7 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
     private var promptContainer: NSView!
     private var chevronBtn: NSButton!
     private var nameLabel: NSTextField!
-    private var triggerLabel: NSTextField!
+    private var triggerPillLabel: NSTextField!
     private var colorIndicator: NSView!
     
     // Editable fields (in expanded section)
@@ -2150,12 +3288,22 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
     
+    private func updateCardBackground() {
+        let skillColor = colors[skill.color] ?? .systemBlue
+        if isExpanded {
+            layer?.backgroundColor = skillColor.withAlphaComponent(0.12).cgColor
+            layer?.borderColor = skillColor.withAlphaComponent(0.3).cgColor
+        } else {
+            layer?.backgroundColor = skillColor.withAlphaComponent(0.06).cgColor
+            layer?.borderColor = skillColor.withAlphaComponent(0.15).cgColor
+        }
+    }
+    
     private func setupUI() {
         wantsLayer = true
         layer?.cornerRadius = 12
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.1).cgColor
+        updateCardBackground()
         
         let mainStack = NSStackView()
         mainStack.orientation = .vertical
@@ -2164,61 +3312,75 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(mainStack)
         
-        // 1. Header Row (Always Visible)
+        // ━━━━ 1. HEADER ROW (Always Visible) ━━━━
         headerRow = NSStackView()
         headerRow.orientation = .horizontal
         headerRow.alignment = .centerY
-        headerRow.spacing = 12
-        headerRow.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 12)
+        headerRow.spacing = 10
+        headerRow.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 12)
         
+        // Chevron
         chevronBtn = NSButton(title: "", target: self, action: #selector(toggleExpand))
         chevronBtn.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Expand")
         chevronBtn.isBordered = false
         chevronBtn.bezelStyle = .recessed
-        chevronBtn.contentTintColor = .secondaryLabelColor
-        chevronBtn.target = self
-        chevronBtn.action = #selector(toggleExpand)
+        chevronBtn.contentTintColor = .tertiaryLabelColor
         
+        // Color dot
         colorIndicator = NSView()
         colorIndicator.translatesAutoresizingMaskIntoConstraints = false
         colorIndicator.wantsLayer = true
-        colorIndicator.layer?.cornerRadius = 6
+        colorIndicator.layer?.cornerRadius = 5
         colorIndicator.layer?.backgroundColor = colors[skill.color]?.cgColor ?? NSColor.systemBlue.cgColor
         
+        // Name label
         nameLabel = NSTextField(labelWithString: skill.name)
         nameLabel.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
         nameLabel.textColor = .labelColor
+        nameLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         
-        let plusLabel = NSTextField(labelWithString: "+")
-        plusLabel.font = NSFont.systemFont(ofSize: 14, weight: .light)
-        plusLabel.textColor = .tertiaryLabelColor
+        // Trigger pill badge
+        let triggerPill = NSView()
+        triggerPill.translatesAutoresizingMaskIntoConstraints = false
+        triggerPill.wantsLayer = true
+        triggerPill.layer?.cornerRadius = 10
+        triggerPill.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
         
-        triggerLabel = NSTextField(labelWithString: skill.trigger)
-        triggerLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        triggerLabel.textColor = .controlAccentColor
+        triggerPillLabel = NSTextField(labelWithString: "\u{1F3A4} \(skill.trigger)")
+        triggerPillLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        triggerPillLabel.textColor = .controlAccentColor
+        triggerPillLabel.translatesAutoresizingMaskIntoConstraints = false
+        triggerPill.addSubview(triggerPillLabel)
         
+        NSLayoutConstraint.activate([
+            triggerPillLabel.leadingAnchor.constraint(equalTo: triggerPill.leadingAnchor, constant: 8),
+            triggerPillLabel.trailingAnchor.constraint(equalTo: triggerPill.trailingAnchor, constant: -8),
+            triggerPillLabel.topAnchor.constraint(equalTo: triggerPill.topAnchor, constant: 3),
+            triggerPillLabel.bottomAnchor.constraint(equalTo: triggerPill.bottomAnchor, constant: -3),
+        ])
+        
+        // Delete button
         let deleteBtn = NSButton(title: "", target: self, action: #selector(deleteSelf))
         deleteBtn.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
         deleteBtn.isBordered = false
         deleteBtn.bezelStyle = .recessed
-        deleteBtn.contentTintColor = .systemRed.withAlphaComponent(0.6)
+        deleteBtn.contentTintColor = .systemRed.withAlphaComponent(0.5)
         
         headerRow.addArrangedSubview(chevronBtn)
         headerRow.addArrangedSubview(colorIndicator)
         headerRow.addArrangedSubview(nameLabel)
-        headerRow.addArrangedSubview(plusLabel)
-        headerRow.addArrangedSubview(triggerLabel)
+        headerRow.addArrangedSubview(triggerPill)
         headerRow.addArrangedSubview(NSView()) // Spacer
         headerRow.addArrangedSubview(deleteBtn)
         
         NSLayoutConstraint.activate([
-            colorIndicator.widthAnchor.constraint(equalToConstant: 12),
-            colorIndicator.heightAnchor.constraint(equalToConstant: 12)
+            colorIndicator.widthAnchor.constraint(equalToConstant: 10),
+            colorIndicator.heightAnchor.constraint(equalToConstant: 10),
         ])
         
         mainStack.addArrangedSubview(headerRow)
         
-        // 2. Details Section (Hidden by default)
+        // ━━━━ 2. EXPANDED EDITOR (Hidden by default) ━━━━
         promptContainer = NSView()
         promptContainer.translatesAutoresizingMaskIntoConstraints = false
         promptContainer.isHidden = true
@@ -2226,18 +3388,64 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         let detailStack = NSStackView()
         detailStack.orientation = .vertical
         detailStack.alignment = .leading
-        detailStack.spacing = 16
-        detailStack.edgeInsets = NSEdgeInsets(top: 0, left: 44, bottom: 20, right: 16)
+        detailStack.spacing = 14
+        detailStack.edgeInsets = NSEdgeInsets(top: 4, left: 40, bottom: 16, right: 14)
         detailStack.translatesAutoresizingMaskIntoConstraints = false
         
-        // Editable Name, Trigger & Color
-        let topFieldsRow = NSStackView()
-        topFieldsRow.spacing = 15
-        topFieldsRow.distribution = .fill
+        // ── Separator line
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.alphaValue = 0.3
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        detailStack.addArrangedSubview(separator)
         
-        nameField = createEditField(title: L10n.isFrench ? "Nom" : "Name", value: skill.name)
-        triggerField = createEditField(title: L10n.isFrench ? "Commande" : "Trigger", value: skill.trigger)
+        // ── Fields Row: Name, Trigger, Color
+        let fieldsRow = NSStackView()
+        fieldsRow.spacing = 12
+        fieldsRow.distribution = .fill
         
+        // Name Field
+        let nameStack = NSStackView()
+        nameStack.orientation = .vertical
+        nameStack.alignment = .leading
+        nameStack.spacing = 4
+        let nameFieldLabel = NSTextField(labelWithString: L10n.isFrench ? "Nom de la compétence" : "Skill Name")
+        nameFieldLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        nameFieldLabel.textColor = .tertiaryLabelColor
+        nameField = NSTextField()
+        nameField.stringValue = skill.name
+        nameField.placeholderString = L10n.isFrench ? "Ex: Traducteur" : "Ex: Translator"
+        nameField.bezelStyle = .roundedBezel
+        nameField.delegate = self
+        nameField.font = NSFont.systemFont(ofSize: 13)
+        nameStack.addArrangedSubview(nameFieldLabel)
+        nameStack.addArrangedSubview(nameField)
+        
+        // Trigger Field
+        let triggerStack = NSStackView()
+        triggerStack.orientation = .vertical
+        triggerStack.alignment = .leading
+        triggerStack.spacing = 4
+        let triggerFieldLabel = NSTextField(labelWithString: L10n.isFrench ? "Mot déclencheur (vocal)" : "Trigger word (voice)")
+        triggerFieldLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        triggerFieldLabel.textColor = .tertiaryLabelColor
+        triggerField = NSTextField()
+        triggerField.stringValue = skill.trigger
+        triggerField.placeholderString = L10n.isFrench ? "Ex: assistant" : "Ex: assistant"
+        triggerField.bezelStyle = .roundedBezel
+        triggerField.delegate = self
+        triggerField.font = NSFont.systemFont(ofSize: 13)
+        triggerStack.addArrangedSubview(triggerFieldLabel)
+        triggerStack.addArrangedSubview(triggerField)
+        
+        // Color Picker
+        let colorStack = NSStackView()
+        colorStack.orientation = .vertical
+        colorStack.alignment = .leading
+        colorStack.spacing = 4
+        let colorFieldLabel = NSTextField(labelWithString: L10n.isFrench ? "Couleur" : "Color")
+        colorFieldLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        colorFieldLabel.textColor = .tertiaryLabelColor
         colorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         for (name, _) in colors {
             colorPopup.addItem(withTitle: name.capitalized)
@@ -2246,24 +3454,34 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         colorPopup.selectItem(withTitle: skill.color.capitalized)
         colorPopup.target = self
         colorPopup.action = #selector(colorChanged(_:))
+        colorStack.addArrangedSubview(colorFieldLabel)
+        colorStack.addArrangedSubview(colorPopup)
         
-        topFieldsRow.addArrangedSubview(nameField)
-        topFieldsRow.addArrangedSubview(triggerField)
-        topFieldsRow.addArrangedSubview(colorPopup)
+        fieldsRow.addArrangedSubview(nameStack)
+        fieldsRow.addArrangedSubview(triggerStack)
+        fieldsRow.addArrangedSubview(colorStack)
+        detailStack.addArrangedSubview(fieldsRow)
         
-        detailStack.addArrangedSubview(topFieldsRow)
-        
-        // Prompt
-        let promptLabel = NSTextField(labelWithString: L10n.isFrench ? "Instructions (Pre-prompt):" : "Instructions (Pre-prompt):")
-        promptLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        promptLabel.textColor = .secondaryLabelColor
+        // ── Prompt Editor
+        let promptHeaderStack = NSStackView()
+        promptHeaderStack.orientation = .horizontal
+        promptHeaderStack.spacing = 6
+        let promptIcon = NSTextField(labelWithString: "\u{1F4DD}")
+        promptIcon.font = NSFont.systemFont(ofSize: 12)
+        let promptLabel = NSTextField(labelWithString: L10n.isFrench ? "Instructions (pré-prompt envoyé à l'IA)" : "Instructions (pre-prompt sent to AI)")
+        promptLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        promptLabel.textColor = .tertiaryLabelColor
+        promptHeaderStack.addArrangedSubview(promptIcon)
+        promptHeaderStack.addArrangedSubview(promptLabel)
         
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
+        scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
         scrollView.wantsLayer = true
         scrollView.layer?.cornerRadius = 8
+        scrollView.layer?.borderWidth = 1
+        scrollView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.2).cgColor
         
         let contentSize = scrollView.contentSize
         let textContainer = NSTextContainer(containerSize: NSSize(width: contentSize.width, height: CGFloat.greatestFiniteMagnitude))
@@ -2278,20 +3496,37 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         promptTextView = NSTextView(frame: .zero, textContainer: textContainer)
         promptTextView.string = skill.prompt
         promptTextView.drawsBackground = true
+        promptTextView.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.3)
         promptTextView.delegate = self
         promptTextView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         promptTextView.textContainerInset = NSSize(width: 10, height: 10)
+        promptTextView.textColor = .labelColor
+        promptTextView.isVerticallyResizable = true
+        promptTextView.isHorizontallyResizable = false
+        promptTextView.autoresizingMask = [.width]
+        promptTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        promptTextView.minSize = NSSize(width: 0, height: 100)
         
         scrollView.documentView = promptTextView
         
-        detailStack.addArrangedSubview(promptLabel)
+        detailStack.addArrangedSubview(promptHeaderStack)
         detailStack.addArrangedSubview(scrollView)
+        
+        // ── Close/fold button
+        let closeBtn = NSButton(title: L10n.isFrench ? "▲ Replier" : "▲ Collapse", target: self, action: #selector(toggleExpand))
+        closeBtn.bezelStyle = .recessed
+        closeBtn.isBordered = false
+        closeBtn.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        closeBtn.contentTintColor = .secondaryLabelColor
+        detailStack.addArrangedSubview(closeBtn)
         
         NSLayoutConstraint.activate([
             scrollView.heightAnchor.constraint(equalToConstant: 100),
-            nameField.widthAnchor.constraint(equalToConstant: 150),
-            triggerField.widthAnchor.constraint(equalToConstant: 150),
-            colorPopup.widthAnchor.constraint(equalToConstant: 90)
+            scrollView.widthAnchor.constraint(equalTo: detailStack.widthAnchor, constant: -54),
+            nameField.widthAnchor.constraint(equalToConstant: 160),
+            triggerField.widthAnchor.constraint(equalToConstant: 160),
+            colorPopup.widthAnchor.constraint(equalToConstant: 90),
+            separator.widthAnchor.constraint(equalTo: detailStack.widthAnchor, constant: -54),
         ])
         
         promptContainer.addSubview(detailStack)
@@ -2299,7 +3534,7 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
             detailStack.topAnchor.constraint(equalTo: promptContainer.topAnchor),
             detailStack.leadingAnchor.constraint(equalTo: promptContainer.leadingAnchor),
             detailStack.trailingAnchor.constraint(equalTo: promptContainer.trailingAnchor),
-            detailStack.bottomAnchor.constraint(equalTo: promptContainer.bottomAnchor)
+            detailStack.bottomAnchor.constraint(equalTo: promptContainer.bottomAnchor),
         ])
         
         mainStack.addArrangedSubview(promptContainer)
@@ -2308,7 +3543,7 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
             mainStack.topAnchor.constraint(equalTo: topAnchor),
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             mainStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor)
+            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
     
@@ -2319,10 +3554,7 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
             context.allowsImplicitAnimation = true
             promptContainer.isHidden = !isExpanded
             chevronBtn.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
-            
-            layer?.backgroundColor = isExpanded ? 
-                NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor : 
-                NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
+            updateCardBackground()
         }
     }
     
@@ -2334,18 +3566,9 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         if let colorName = sender.selectedItem?.representedObject as? String {
             skill.color = colorName
             colorIndicator.layer?.backgroundColor = colors[colorName]?.cgColor
+            updateCardBackground()
             onUpdate?(index, skill)
         }
-    }
-    
-    private func createEditField(title: String, value: String) -> NSTextField {
-        let field = NSTextField()
-        field.stringValue = value
-        field.placeholderString = title
-        field.bezelStyle = .roundedBezel
-        field.delegate = self
-        field.font = NSFont.systemFont(ofSize: 13)
-        return field
     }
     
     // MARK: - Interaction
@@ -2370,13 +3593,14 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
     
     override func mouseEntered(with event: NSEvent) {
         if !isExpanded {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor
+            let skillColor = colors[skill.color] ?? .systemBlue
+            layer?.backgroundColor = skillColor.withAlphaComponent(0.12).cgColor
         }
     }
     
     override func mouseExited(with event: NSEvent) {
         if !isExpanded {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.2).cgColor
+            updateCardBackground()
         }
     }
     
@@ -2385,7 +3609,7 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         skill.name = nameField.stringValue
         skill.trigger = triggerField.stringValue
         nameLabel.stringValue = skill.name
-        triggerLabel.stringValue = skill.trigger
+        triggerPillLabel.stringValue = "\u{1F3A4} \(skill.trigger)"
         onUpdate?(index, skill)
     }
     
@@ -2394,3 +3618,4 @@ class AISkillRowView: NSView, NSTextFieldDelegate, NSTextViewDelegate {
         onUpdate?(index, skill)
     }
 }
+

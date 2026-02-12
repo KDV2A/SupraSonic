@@ -1,7 +1,17 @@
 import Cocoa
 
-// Launch the application
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+// 1. SETUP ENVIRONMENT
+// (No special setup required for APIs)
+
+// 2. START APPLICATION
+autoreleasepool {
+    let app = NSApplication.shared
+    
+    // Create AppDelegate on the MainActor synchronously
+    let delegate = MainActor.assumeIsolated {
+        return AppDelegate()
+    }
+    
+    app.delegate = delegate
+    app.run()
+}
