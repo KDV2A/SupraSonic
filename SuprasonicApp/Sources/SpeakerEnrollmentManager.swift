@@ -151,7 +151,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         do {
             print("📊 Enrollment: Attempt 1 - Using OfflineDiarizerManager...")
             let offlineManager = OfflineDiarizerManager()
-            try await offlineManager.prepareModels()
+            try await offlineManager.prepareModels(directory: TranscriptionManager.diarizerModelsDirectory())
             
             enrollmentProgress = 0.6
             

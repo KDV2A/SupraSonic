@@ -156,8 +156,12 @@ class TranscriptionManager: ObservableObject {
         do {
             print("👯‍♀️ TranscriptionManager: Downloading Diarizer models...")
             // The library handles downloading if needed
-            let models = try await DiarizerModels.downloadIfNeeded()
+            let diarizerDir = Self.diarizerModelsDirectory()
+            let models = try await DiarizerModels.downloadIfNeeded(to: diarizerDir)
             self.diarizerModels = models
+            
+            // Clean up legacy FluidAudio diarizer directory
+            Self.migrateLegacyDiarizerModels()
             print("✅ TranscriptionManager: Diarizer models ready")
             
             await MainActor.run {
@@ -346,6 +350,80 @@ class TranscriptionManager: ObservableObject {
 }
 
 // MARK: - Errors
+
+extension TranscriptionManager {
+    /// Shared directory for all diarizer models (streaming + offline)
+    static func diarizerModelsDirectory() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("SupraSonic/models/diarizer")
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+    
+    /// Migrate diarizer models from legacy FluidAudio directory to SupraSonic
+    static func migrateLegacyDiarizerModels() {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let legacyDir = appSupport.appendingPathComponent("FluidAudio/Models")
+        
+        guard fm.fileExists(atPath: legacyDir.path) else { return }
+        
+        let destDir = diarizerModelsDirectory()
+        
+        // Move contents from FluidAudio/Models/ to SupraSonic/models/diarizer/
+        if let contents = try? fm.contentsOfDirectory(at: legacyDir, includingPropertiesForKeys: nil) {
+            for item in contents {
+                let dest = destDir.appendingPathComponent(item.lastPathComponent)
+                if !fm.fileExists(atPath: dest.path) {
+                    try? fm.moveItem(at: item, to: dest)
+                    print("📂 Diarizer Migration: Moved \(item.lastPathComponent) to SupraSonic")
+                }
+            }
+        }
+        
+        // Remove legacy FluidAudio directory entirely
+        let fluidAudioRoot = appSupport.appendingPathComponent("FluidAudio")
+        if fm.fileExists(atPath: fluidAudioRoot.path) {
+            try? fm.removeItem(at: fluidAudioRoot)
+            print("🧹 Diarizer Migration: Removed legacy FluidAudio directory")
+        }
+    }
+    
+    /// Total size of all SupraSonic models on disk
+    static func totalModelsSize() -> Int64 {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let modelsDir = appSupport.appendingPathComponent("SupraSonic/models")
+        
+        guard fm.fileExists(atPath: modelsDir.path) else { return 0 }
+        
+        var totalSize: Int64 = 0
+        let resourceKeys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        if let enumerator = fm.enumerator(at: modelsDir, includingPropertiesForKeys: resourceKeys, options: [.skipsHiddenFiles]) {
+            for case let fileURL as URL in enumerator {
+                if let values = try? fileURL.resourceValues(forKeys: Set(resourceKeys)),
+                   values.isRegularFile == true,
+                   let size = values.fileSize {
+                    totalSize += Int64(size)
+                }
+            }
+        }
+        return totalSize
+    }
+    
+    /// Delete all downloaded models
+    static func deleteAllModels() {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let modelsDir = appSupport.appendingPathComponent("SupraSonic/models")
+        if fm.fileExists(atPath: modelsDir.path) {
+            try? fm.removeItem(at: modelsDir)
+            print("🗑️ Deleted all SupraSonic models")
+        }
+    }
+}
 
 enum TranscriptionError: LocalizedError {
     case notInitialized

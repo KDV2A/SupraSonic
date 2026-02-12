@@ -436,6 +436,28 @@ class SettingsWindow: NSWindow {
         resetContainer.edgeInsets = NSEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)
         mainStack.addArrangedSubview(resetContainer)
         
+        // Uninstall Section
+        mainStack.setCustomSpacing(32, after: resetContainer)
+        mainStack.addArrangedSubview(createSectionHeader(L10n.isFrench ? "Désinstallation" : "Uninstall"))
+        
+        let uninstallBtn = NSButton(title: L10n.isFrench ? "Désinstaller SupraSonic" : "Uninstall SupraSonic", target: self, action: #selector(uninstallApp))
+        uninstallBtn.translatesAutoresizingMaskIntoConstraints = false
+        uninstallBtn.bezelStyle = .rounded
+        uninstallBtn.font = NSFont.systemFont(ofSize: 13)
+        uninstallBtn.contentTintColor = .systemRed
+        
+        let uninstallDesc = NSTextField(wrappingLabelWithString: L10n.isFrench ? "Supprime les permissions d'accessibilité et vous propose de supprimer les modèles IA téléchargés." : "Removes accessibility permissions and offers to delete downloaded AI models.")
+        uninstallDesc.font = NSFont.systemFont(ofSize: 11)
+        uninstallDesc.textColor = .tertiaryLabelColor
+        uninstallDesc.preferredMaxLayoutWidth = 540
+        
+        let uninstallStack = NSStackView(views: [uninstallBtn, uninstallDesc])
+        uninstallStack.orientation = .vertical
+        uninstallStack.alignment = .leading
+        uninstallStack.spacing = 8
+        uninstallStack.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.addArrangedSubview(uninstallStack)
+        
         contentView.addSubview(mainStack)
         scrollView.documentView = contentView
         container.addSubview(scrollView)
@@ -2609,6 +2631,68 @@ private func createVocabularyView() -> NSView {
             SettingsManager.shared.clearHistory()
             reloadHistory()
         }
+    }
+    
+    @objc private func uninstallApp() {
+        // Step 1: Confirm
+        let alert = NSAlert()
+        alert.messageText = L10n.isFrench ? "Désinstaller SupraSonic ?" : "Uninstall SupraSonic?"
+        alert.informativeText = L10n.isFrench
+            ? "Cette action va supprimer les permissions d'accessibilité de l'application."
+            : "This will remove the app's accessibility permissions."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: L10n.isFrench ? "Désinstaller" : "Uninstall")
+        alert.addButton(withTitle: L10n.isFrench ? "Annuler" : "Cancel")
+        
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        
+        // Step 2: Remove accessibility permissions
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.suprasonic.app"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", "Accessibility", bundleId]
+        try? process.run()
+        process.waitUntilExit()
+        print("✅ Uninstall: Accessibility permissions reset")
+        
+        // Step 3: Ask about AI models
+        let modelSize = TranscriptionManager.totalModelsSize()
+        let modelSizeMB = Double(modelSize) / (1024.0 * 1024.0)
+        
+        if modelSize > 0 {
+            let modelAlert = NSAlert()
+            modelAlert.messageText = L10n.isFrench
+                ? "Supprimer les modèles IA ?"
+                : "Delete AI models?"
+            modelAlert.informativeText = L10n.isFrench
+                ? "Les modèles IA téléchargés occupent \(String(format: "%.0f", modelSizeMB)) Mo. Voulez-vous les supprimer ?"
+                : "Downloaded AI models use \(String(format: "%.0f", modelSizeMB)) MB. Do you want to delete them?"
+            modelAlert.addButton(withTitle: L10n.isFrench ? "Supprimer les modèles" : "Delete Models")
+            modelAlert.addButton(withTitle: L10n.isFrench ? "Conserver" : "Keep")
+            
+            if modelAlert.runModal() == .alertFirstButtonReturn {
+                TranscriptionManager.deleteAllModels()
+                // Also delete speaker profiles and meeting history
+                let fm = FileManager.default
+                let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                let supDir = appSupport.appendingPathComponent("SupraSonic")
+                if fm.fileExists(atPath: supDir.path) {
+                    try? fm.removeItem(at: supDir)
+                    print("🗑️ Uninstall: Deleted all SupraSonic data")
+                }
+            }
+        }
+        
+        // Step 4: Move app to trash
+        let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
+        do {
+            try FileManager.default.trashItem(at: appURL, resultingItemURL: nil)
+            print("🗑️ Uninstall: App moved to trash")
+        } catch {
+            print("⚠️ Uninstall: Could not move app to trash: \(error)")
+        }
+        
+        NSApp.terminate(nil)
     }
     
     @objc private func copySelected() {

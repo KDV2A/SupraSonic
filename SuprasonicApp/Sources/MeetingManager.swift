@@ -232,7 +232,7 @@ class MeetingManager: ObservableObject {
         
         do {
             let offlineDiarizer = OfflineDiarizerManager()
-            try await offlineDiarizer.prepareModels()
+            try await offlineDiarizer.prepareModels(directory: TranscriptionManager.diarizerModelsDirectory())
             let result = try await offlineDiarizer.process(audio: normalizedAudio)
             
             guard let speakerDB = result.speakerDatabase, !speakerDB.isEmpty else {
