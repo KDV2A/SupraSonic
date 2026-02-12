@@ -243,7 +243,7 @@ Vitesse : Tes réponses doivent être structurées pour être lues rapidement pa
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
-                print("❌ Failed to update launch on login: \(error)")
+                debugLog("❌ Failed to update launch on login: \(error)")
             }
         }
     }

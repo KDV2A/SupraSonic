@@ -90,9 +90,9 @@ class SpeakerEnrollmentManager: ObservableObject {
         do {
             let data = try Data(contentsOf: storageURL)
             profiles = try decoder.decode([SpeakerProfile].self, from: data)
-            print("👤 Enrollment: Loaded \(profiles.count) speaker profiles")
+            debugLog("👤 Enrollment: Loaded \(profiles.count) speaker profiles")
         } catch {
-            print("❌ Enrollment: Failed to load profiles: \(error)")
+            debugLog("❌ Enrollment: Failed to load profiles: \(error)")
             profiles = []
         }
     }
@@ -101,9 +101,9 @@ class SpeakerEnrollmentManager: ObservableObject {
         do {
             let data = try encoder.encode(profiles)
             try data.write(to: storageURL)
-            print("💾 Enrollment: Saved \(profiles.count) speaker profiles")
+            debugLog("💾 Enrollment: Saved \(profiles.count) speaker profiles")
         } catch {
-            print("❌ Enrollment: Failed to save profiles: \(error)")
+            debugLog("❌ Enrollment: Failed to save profiles: \(error)")
         }
     }
     
@@ -130,8 +130,8 @@ class SpeakerEnrollmentManager: ObservableObject {
         let safeScale = min(scale, 100.0)
         let normalizedSamples = audioSamples.map { $0 * safeScale }
         
-        print("📊 Enrollment: Audio stats - samples: \(audioSamples.count), maxAmp: \(maxAmp), scale: \(safeScale)")
-        print("📊 Enrollment: Duration: \(Double(audioSamples.count) / 16000.0)s")
+        debugLog("📊 Enrollment: Audio stats - samples: \(audioSamples.count), maxAmp: \(maxAmp), scale: \(safeScale)")
+        debugLog("📊 Enrollment: Duration: \(Double(audioSamples.count) / 16000.0)s")
         
         enrollmentProgress = 0.4
         
@@ -149,7 +149,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         
         // Attempt 1: Use OfflineDiarizerManager (recommended for most cases)
         do {
-            print("📊 Enrollment: Attempt 1 - Using OfflineDiarizerManager...")
+            debugLog("📊 Enrollment: Attempt 1 - Using OfflineDiarizerManager...")
             let offlineManager = OfflineDiarizerManager()
             try await offlineManager.prepareModels(directory: TranscriptionManager.diarizerModelsDirectory())
             
@@ -157,19 +157,19 @@ class SpeakerEnrollmentManager: ObservableObject {
             
             let result = try await offlineManager.process(audio: normalizedSamples)
             segmentsFound = result.segments.count
-            print("📊 Enrollment: Offline diarization - Segments: \(segmentsFound)")
+            debugLog("📊 Enrollment: Offline diarization - Segments: \(segmentsFound)")
             for (i, seg) in result.segments.prefix(5).enumerated() {
-                print("   Segment \(i): speaker=\(seg.speakerId), start=\(seg.startTimeSeconds)s, end=\(seg.endTimeSeconds)s")
+                debugLog("   Segment \(i): speaker=\(seg.speakerId), start=\(seg.startTimeSeconds)s, end=\(seg.endTimeSeconds)s")
             }
             speakerDB = result.speakerDatabase
             
             if let db = speakerDB, !db.isEmpty {
-                print("📊 Enrollment Debug: Speakers in DB: \(db.keys.joined(separator: ", "))")
+                debugLog("📊 Enrollment Debug: Speakers in DB: \(db.keys.joined(separator: ", "))")
             } else {
-                print("📊 Enrollment Debug: No speakers in database (segments: \(segmentsFound))")
+                debugLog("📊 Enrollment Debug: No speakers in database (segments: \(segmentsFound))")
             }
         } catch {
-            print("⚠️ Enrollment: OfflineDiarizerManager failed: \(error)")
+            debugLog("⚠️ Enrollment: OfflineDiarizerManager failed: \(error)")
             lastError = error
         }
         
@@ -177,7 +177,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         
         // Fallback: Try streaming DiarizerManager if offline failed
         if speakerDB == nil || speakerDB?.isEmpty == true {
-            print("📊 Enrollment: Attempt 2 - Fallback to DiarizerManager (streaming)...")
+            debugLog("📊 Enrollment: Attempt 2 - Fallback to DiarizerManager (streaming)...")
             
             let diarizer = DiarizerManager()
             diarizer.initialize(models: TranscriptionManager.shared.diarizerModels!)
@@ -185,17 +185,17 @@ class SpeakerEnrollmentManager: ObservableObject {
             do {
                 let result = try diarizer.performCompleteDiarization(normalizedSamples)
                 segmentsFound = result.segments.count
-                print("📊 Enrollment: Streaming diarization - Segments: \(segmentsFound)")
+                debugLog("📊 Enrollment: Streaming diarization - Segments: \(segmentsFound)")
                 speakerDB = result.speakerDatabase
             } catch {
-                print("⚠️ Enrollment: DiarizerManager failed: \(error)")
+                debugLog("⚠️ Enrollment: DiarizerManager failed: \(error)")
                 lastError = error
             }
         }
         
         // Attempt 3: Try with padded audio
         if speakerDB == nil || speakerDB?.isEmpty == true {
-            print("📊 Enrollment: Attempt 3 - Adding 1s padding...")
+            debugLog("📊 Enrollment: Attempt 3 - Adding 1s padding...")
             let paddingSamples = [Float](repeating: 0.0, count: 16000)
             let paddedSamples = paddingSamples + normalizedSamples + paddingSamples
             
@@ -205,18 +205,18 @@ class SpeakerEnrollmentManager: ObservableObject {
             do {
                 let result2 = try diarizer2.performCompleteDiarization(paddedSamples)
                 segmentsFound = result2.segments.count
-                print("📊 Enrollment: Padded audio - Segments: \(segmentsFound)")
+                debugLog("📊 Enrollment: Padded audio - Segments: \(segmentsFound)")
                 speakerDB = result2.speakerDatabase
             } catch {
-                print("⚠️ Enrollment: Padded attempt failed: \(error)")
+                debugLog("⚠️ Enrollment: Padded attempt failed: \(error)")
                 lastError = error
             }
         }
         
         guard let finalDB = speakerDB, let firstEmbedding = finalDB.values.first else {
-            print("❌ Enrollment: All attempts failed. Audio length: \(normalizedSamples.count), segments found: \(segmentsFound)")
+            debugLog("❌ Enrollment: All attempts failed. Audio length: \(normalizedSamples.count), segments found: \(segmentsFound)")
             if let err = lastError {
-                print("❌ Enrollment: Last error: \(err)")
+                debugLog("❌ Enrollment: Last error: \(err)")
             }
             throw EnrollmentError.embeddingFailed
         }
@@ -239,7 +239,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         saveProfiles()
         
         enrollmentProgress = 1.0
-        print("✅ Enrollment: Enrolled '\(name)' with \(firstEmbedding.count)-dim embedding")
+        debugLog("✅ Enrollment: Enrolled '\(name)' with \(firstEmbedding.count)-dim embedding")
         
         return profile
     }
@@ -274,7 +274,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         profiles[index].updatedAt = Date()
         saveProfiles()
         
-        print("🔄 Enrollment: Re-enrolled '\(profiles[index].name)' with fresh embedding")
+        debugLog("🔄 Enrollment: Re-enrolled '\(profiles[index].name)' with fresh embedding")
     }
     
     // MARK: - CRUD
@@ -319,7 +319,7 @@ class SpeakerEnrollmentManager: ObservableObject {
         }
         
         diarizer.speakerManager.initializeKnownSpeakers(fluidSpeakers)
-        print("👥 Enrollment: Loaded \(fluidSpeakers.count) known speakers into diarizer")
+        debugLog("👥 Enrollment: Loaded \(fluidSpeakers.count) known speakers into diarizer")
     }
     
     /// Find a speaker profile by matching a FluidAudio speaker ID

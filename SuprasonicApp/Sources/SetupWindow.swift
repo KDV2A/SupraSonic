@@ -141,7 +141,7 @@ class SetupWindow: NSWindow {
     }
     
     @objc private func startSetup() {
-        print("🚀 Setup: Start clicked")
+        debugLog("🚀 Setup: Start clicked")
         actionButton.isEnabled = false
         performSetup()
     }
@@ -225,9 +225,9 @@ class SetupWindow: NSWindow {
             }
             
             do {
-                print("📥 Setup: Starting transcription engine initialization...")
+                debugLog("📥 Setup: Starting transcription engine initialization...")
                 try await TranscriptionManager.shared.initialize()
-                print("✅ Setup: Initialization successful")
+                debugLog("✅ Setup: Initialization successful")
                 
                 // Initialize LLM Manager (Access Check)
                 try await LLMManager.shared.initialize()
@@ -243,7 +243,7 @@ class SetupWindow: NSWindow {
                 
                 finishSuccess()
             } catch {
-                print("❌ Setup: Initialization failed: \(error)")
+                debugLog("❌ Setup: Initialization failed: \(error)")
                 progressTimer.invalidate()
                 showError("\(l.setupError): \(error.localizedDescription)")
             }
@@ -270,7 +270,7 @@ class SetupWindow: NSWindow {
     }
     
     @objc private func finishSetup() {
-        print("✅ Setup: Success finish clicked")
+        debugLog("✅ Setup: Success finish clicked")
         
         // Disable animations to prevent crash during tear-down
         self.animationBehavior = .none

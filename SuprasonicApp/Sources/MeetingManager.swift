@@ -53,7 +53,7 @@ class MeetingManager: ObservableObject {
         
         do {
             try state.startRecording()
-            print("🎙️ Meeting: Started recording — '\(title)'")
+            debugLog("🎙️ Meeting: Started recording — '\(title)'")
             
             flushTimer = Timer.scheduledTimer(withTimeInterval: flushInterval, repeats: true) { [weak self] _ in
                 Task { @MainActor in
@@ -61,7 +61,7 @@ class MeetingManager: ObservableObject {
                 }
             }
         } catch {
-            print("❌ Meeting: Failed to start recording: \(error)")
+            debugLog("❌ Meeting: Failed to start recording: \(error)")
             isMeetingActive = false
         }
     }
@@ -77,9 +77,9 @@ class MeetingManager: ObservableObject {
         
         do {
             try state.stopRecording()
-            print("⏹️ Meeting: Stopped recording")
+            debugLog("⏹️ Meeting: Stopped recording")
         } catch {
-            print("❌ Meeting: Failed to stop recording: \(error)")
+            debugLog("❌ Meeting: Failed to stop recording: \(error)")
         }
         
         // Transcribe last accumulated audio before stopping
@@ -95,12 +95,12 @@ class MeetingManager: ObservableObject {
                 self.lastFlushIndex = currentCount
                 
                 let diarAudio = Array(self.audioBuffer.suffix(16000 * 5))
-                print("🌊 Meeting: Final transcription of \(newAudio.count) samples...")
+                debugLog("🌊 Meeting: Final transcription of \(newAudio.count) samples...")
                 Task {
                     do {
                         let text = try await TranscriptionManager.shared.transcribe(audioSamples: newAudio)
                         if !text.isEmpty {
-                            print("📝 Meeting Final Transcription: \(text)")
+                            debugLog("📝 Meeting Final Transcription: \(text)")
                             let cachedId = await MainActor.run { self.lastSpeakerId }
                             let cachedName = await MainActor.run { self.lastSpeakerName }
                             let speakerInfo = await self.identifySpeaker(audio: diarAudio, lastId: cachedId, lastName: cachedName)
@@ -111,7 +111,7 @@ class MeetingManager: ObservableObject {
                             }
                         }
                     } catch {
-                        print("❌ Meeting: Final transcription failed: \(error)")
+                        debugLog("❌ Meeting: Final transcription failed: \(error)")
                     }
                     
                     // Now do post-processing
@@ -158,13 +158,13 @@ class MeetingManager: ObservableObject {
     private func flushAudio() {
         guard isMeetingActive, let state = rustState else { return }
         
-        print("🌊 Meeting: Triggering Rust flush (buffer: \(audioBuffer.count) samples, lastFlush: \(lastFlushIndex))...")
+        debugLog("🌊 Meeting: Triggering Rust flush (buffer: \(audioBuffer.count) samples, lastFlush: \(lastFlushIndex))...")
         
         // Trigger Rust to send buffered audio via onAudioData callback
         try? state.flush()
         
         // Schedule transcription after a short delay to allow audio to arrive via onAudioData
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.transcribeAccumulatedAudio()
         }
     }
@@ -174,7 +174,7 @@ class MeetingManager: ObservableObject {
         
         let currentCount = audioBuffer.count
         guard currentCount > lastFlushIndex + 16000 else {
-            print("🌊 Meeting: Not enough new audio to transcribe (\(currentCount - lastFlushIndex) samples)")
+            debugLog("🌊 Meeting: Not enough new audio to transcribe (\(currentCount - lastFlushIndex) samples)")
             return
         }
         
@@ -188,17 +188,17 @@ class MeetingManager: ObservableObject {
         let contextSamples = 16000 * 5
         let diarAudio = Array(audioBuffer.suffix(contextSamples))
         
-        print("🌊 Meeting: Transcribing \(newAudio.count) samples (\(Double(newAudio.count) / 16000.0)s) with 1s overlap...")
+        debugLog("🌊 Meeting: Transcribing \(newAudio.count) samples (\(Double(newAudio.count) / 16000.0)s) with 1s overlap...")
         
         Task {
             do {
                 // 1. Transcribe
                 let text = try await TranscriptionManager.shared.transcribe(audioSamples: newAudio)
                 guard !text.isEmpty else {
-                    print("📝 Meeting: Empty transcription result")
+                    debugLog("📝 Meeting: Empty transcription result")
                     return
                 }
-                print("📝 Meeting Transcription: \(text)")
+                debugLog("📝 Meeting Transcription: \(text)")
                 
                 // 2. Identify speaker via OfflineDiarizerManager (provides embeddings)
                 let cachedId = await MainActor.run { self.lastSpeakerId }
@@ -212,7 +212,7 @@ class MeetingManager: ObservableObject {
                     self.addFinalSegment(text: text, speakerId: speakerInfo.id, speakerName: speakerInfo.name)
                 }
             } catch {
-                print("❌ Meeting: Transcription failed: \(error)")
+                debugLog("❌ Meeting: Transcription failed: \(error)")
             }
         }
     }
@@ -236,7 +236,7 @@ class MeetingManager: ObservableObject {
             let result = try await offlineDiarizer.process(audio: normalizedAudio)
             
             guard let speakerDB = result.speakerDatabase, !speakerDB.isEmpty else {
-                print("🔍 Meeting: No speakers detected — keeping '\(lastName)'")
+                debugLog("🔍 Meeting: No speakers detected — keeping '\(lastName)'")
                 return (lastId, lastName)
             }
             
@@ -256,25 +256,25 @@ class MeetingManager: ObservableObject {
             var bestMatch: (profile: SpeakerProfile, score: Float)?
             for profile in profiles {
                 let score = Self.cosineSimilarity(detectedEmbedding, profile.embedding)
-                print("🔍 Meeting: Cosine('\(profile.name)') = \(String(format: "%.4f", score))")
+                debugLog("🔍 Meeting: Cosine('\(profile.name)') = \(String(format: "%.4f", score))")
                 if score > (bestMatch?.score ?? 0.05) {
                     bestMatch = (profile, score)
                 }
             }
             
             if let match = bestMatch {
-                print("🎯 Meeting: Speaker → '\(match.profile.name)' (score: \(String(format: "%.3f", match.score)))")
+                debugLog("🎯 Meeting: Speaker → '\(match.profile.name)' (score: \(String(format: "%.3f", match.score)))")
                 return (match.profile.id, match.profile.name)
             } else {
                 // Recognition failed — reuse last known speaker instead of showing "S1"
                 if lastId != nil {
-                    print("🔍 Meeting: Low confidence — keeping '\(lastName)'")
+                    debugLog("🔍 Meeting: Low confidence — keeping '\(lastName)'")
                     return (lastId, lastName)
                 }
                 return (bestId, formatSpeakerName(bestId))
             }
         } catch {
-            print("⚠️ Meeting: Diarization failed — keeping '\(lastName)'")
+            debugLog("⚠️ Meeting: Diarization failed — keeping '\(lastName)'")
             return (lastId, lastName)
         }
     }
@@ -290,7 +290,7 @@ class MeetingManager: ObservableObject {
         if let lastIdx = meeting.segments.indices.last,
            meeting.segments[lastIdx].speakerName == speakerName {
             meeting.segments[lastIdx].text += " " + text
-            print("📝 Meeting: Merged with previous segment for '\(speakerName)'")
+            debugLog("📝 Meeting: Merged with previous segment for '\(speakerName)'")
         } else {
             let segment = MeetingSegment(timestamp: timestamp, text: text, speakerId: speakerId, speakerName: speakerName, isFinal: true)
             meeting.segments.append(segment)
@@ -307,7 +307,7 @@ class MeetingManager: ObservableObject {
         }
         
         MeetingHistoryManager.shared.saveMeeting(meeting)
-        print("📝 Meeting Segment: [\(Int(timestamp))s] [\(speakerName)] \(text)")
+        debugLog("📝 Meeting Segment: [\(Int(timestamp))s] [\(speakerName)] \(text)")
         
         // Keep buffer reasonable (last 60s)
         if audioBuffer.count > 16000 * 60 {
@@ -344,16 +344,16 @@ class MeetingManager: ObservableObject {
             return
         }
         
-        print("🤖 Meeting: Starting post-meeting processing...")
+        debugLog("🤖 Meeting: Starting post-meeting processing...")
         
         // AI Summarization
         do {
             let result = try await LLMManager.shared.processMeeting(meeting: meeting)
             meeting.summary = result.summary
             meeting.actionItems = result.actionItems
-            print("✅ Meeting: AI summarization complete")
+            debugLog("✅ Meeting: AI summarization complete")
         } catch {
-            print("⚠️ Meeting: AI summarization failed: \(error)")
+            debugLog("⚠️ Meeting: AI summarization failed: \(error)")
         }
         
         // Mark as completed
@@ -362,7 +362,7 @@ class MeetingManager: ObservableObject {
         MeetingHistoryManager.shared.saveMeeting(meeting)
         
         isProcessing = false
-        print("✅ Meeting: Post-processing finished")
+        debugLog("✅ Meeting: Post-processing finished")
         
         // Notify UI to refresh (meeting detail window may already be open)
         NotificationCenter.default.post(
@@ -387,7 +387,7 @@ class MeetingManager: ObservableObject {
         guard var meeting = targetMeeting else { return }
         
         self.isProcessing = true
-        print("🤖 Meeting: Starting AI summarization for \(meeting.title)")
+        debugLog("🤖 Meeting: Starting AI summarization for \(meeting.title)")
         
         do {
             let result = try await LLMManager.shared.processMeeting(meeting: meeting)
@@ -400,9 +400,9 @@ class MeetingManager: ObservableObject {
                 self.currentMeeting = meeting
             }
             
-            print("✅ Meeting: AI summarization complete.")
+            debugLog("✅ Meeting: AI summarization complete.")
         } catch {
-            print("❌ Meeting: AI summarization failed: \(error)")
+            debugLog("❌ Meeting: AI summarization failed: \(error)")
         }
         
         self.isProcessing = false
@@ -448,7 +448,7 @@ class MeetingManager: ObservableObject {
     
     func importMeeting(from url: URL) async {
         guard !isMeetingActive, !isProcessing else {
-            print("⚠️ Meeting: Cannot import while active or processing")
+            debugLog("⚠️ Meeting: Cannot import while active or processing")
             return
         }
         
@@ -456,7 +456,7 @@ class MeetingManager: ObservableObject {
         defer { self.isProcessing = false }
         
         let filename = url.deletingPathExtension().lastPathComponent
-        print("📥 Meeting: Importing \(filename)...")
+        debugLog("📥 Meeting: Importing \(filename)...")
         
         do {
             let (samples, convertedURL) = try await AudioConverter.convertToStandardFormat(inputURL: url)
@@ -508,7 +508,7 @@ class MeetingManager: ObservableObject {
                                     }
                                 }
                             } catch {
-                                print("⚠️ Import: Diarization failed: \(error)")
+                                debugLog("⚠️ Import: Diarization failed: \(error)")
                             }
                         }
                         
@@ -532,10 +532,10 @@ class MeetingManager: ObservableObject {
             MeetingHistoryManager.shared.saveMeeting(meeting)
             self.currentMeeting = meeting
             
-            print("✅ Import: Complete")
+            debugLog("✅ Import: Complete")
             
         } catch {
-            print("❌ Import: Failed: \(error)")
+            debugLog("❌ Import: Failed: \(error)")
         }
     }
 }

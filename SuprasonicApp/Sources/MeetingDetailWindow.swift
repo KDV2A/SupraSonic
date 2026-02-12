@@ -227,7 +227,7 @@ class MeetingDetailWindow: NSWindow, NSSplitViewDelegate, NSTableViewDelegate, N
                 try content.write(to: url, atomically: true, encoding: .utf8)
                 NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
             } catch {
-                print("❌ Export failed: \(error)")
+                debugLog("❌ Export failed: \(error)")
             }
         }
     }

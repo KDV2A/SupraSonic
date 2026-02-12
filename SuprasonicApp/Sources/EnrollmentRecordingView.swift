@@ -127,7 +127,7 @@ class EnrollmentRecordingView: NSView {
         let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
         
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            print("❌ EnrollmentView: Failed to create audio converter")
+            debugLog("❌ EnrollmentView: Failed to create audio converter")
             return
         }
         
@@ -173,7 +173,7 @@ class EnrollmentRecordingView: NSView {
             try audioEngine.start()
             startTimer()
         } catch {
-            print("❌ EnrollmentView: Failed to start engine: \(error)")
+            debugLog("❌ EnrollmentView: Failed to start engine: \(error)")
         }
     }
     

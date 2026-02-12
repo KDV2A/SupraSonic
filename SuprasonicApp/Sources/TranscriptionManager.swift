@@ -28,12 +28,12 @@ class TranscriptionManager: ObservableObject {
     /// Initialize the Parakeet ASR engine
     func initialize(language: String = "fr", forceReload: Bool = false) async throws {
         if isReady && !forceReload {
-            print("✅ TranscriptionManager: Already ready and no force reload requested.")
+            debugLog("✅ TranscriptionManager: Already ready and no force reload requested.")
             return
         }
         
         if isInitializing {
-            print("⚠️ TranscriptionManager: Already initializing, skipping...")
+            debugLog("⚠️ TranscriptionManager: Already initializing, skipping...")
             return
         }
         
@@ -46,7 +46,7 @@ class TranscriptionManager: ObservableObject {
         currentLanguage = language
         
         let targetModelURL = getModelDirectoryURL()
-        print("📂 TranscriptionManager: Target model path is \(targetModelURL.path)")
+        debugLog("📂 TranscriptionManager: Target model path is \(targetModelURL.path)")
         
         // Always attempt to purge legacy directory to ensure branding purity
         purgeLegacyDirectory()
@@ -76,13 +76,13 @@ class TranscriptionManager: ObservableObject {
             let models: AsrModels
             
             if FileManager.default.fileExists(atPath: targetModelURL.path) {
-                print("📂 TranscriptionManager: Model found at target path. Loading...")
+                debugLog("📂 TranscriptionManager: Model found at target path. Loading...")
                 statusMessage = L10n.isFrench ? "Chargement des modèles..." : "Loading models..."
                 progress = 0.45
                 models = try await AsrModels.load(from: targetModelURL)
                 progress = 0.75
             } else {
-                print("📂 TranscriptionManager: Model NOT found. Initializing download...")
+                debugLog("📂 TranscriptionManager: Model NOT found. Initializing download...")
                 statusMessage = L10n.isFrench ? "Téléchargement..." : "Downloading..."
                 progress = 0.4
                 
@@ -97,18 +97,18 @@ class TranscriptionManager: ObservableObject {
                 
                 _ = try await AsrModels.downloadAndLoad(version: modelVersion)
                 
-                print("📂 TranscriptionManager: Download complete. Migrating to SupraSonic folder...")
+                debugLog("📂 TranscriptionManager: Download complete. Migrating to SupraSonic folder...")
                 statusMessage = L10n.isFrench ? "Organisation des fichiers..." : "Organizing files..."
                 // Immediately migrate to SupraSonic folder and CLEAN UP FluidAudio
                 try migrateModelToSupraSonic()
                 
                 // RELOAD from the final destination to ensure we have correct paths
                 let finalModelURL = getModelDirectoryURL()
-                print("📂 TranscriptionManager: Reloading models from \(finalModelURL.path)...")
+                debugLog("📂 TranscriptionManager: Reloading models from \(finalModelURL.path)...")
                 models = try await AsrModels.load(from: finalModelURL)
             }
             
-            print("⚙️ TranscriptionManager: Initializing ASR Manager (Compilation)...")
+            debugLog("⚙️ TranscriptionManager: Initializing ASR Manager (Compilation)...")
             statusMessage = L10n.isFrench ? "Optimisation des modèles (cela peut prendre une minute)..." : "Optimizing models (this may take a minute)..."
             // Start at 82% and let monitoring task nudge it
             if progress < 0.82 { progress = 0.82 }
@@ -116,7 +116,7 @@ class TranscriptionManager: ObservableObject {
             let asrManager = AsrManager(config: .default)
             try await asrManager.initialize(models: models)
             
-            print("🔥🔥 TranscriptionManager: Pre-warming model...")
+            debugLog("🔥🔥 TranscriptionManager: Pre-warming model...")
             statusMessage = L10n.isFrench ? "Finalisation..." : "Finalizing..."
             progress = 0.96
             
@@ -129,12 +129,12 @@ class TranscriptionManager: ObservableObject {
             isLoading = false
             statusMessage = L10n.isFrench ? "Prêt" : "Ready"
             progress = 1.0
-            print("✅ TranscriptionManager: Initialization complete")
+            debugLog("✅ TranscriptionManager: Initialization complete")
             
             // Clean up old model versions to free disk space
             cleanupOldModels()
         } catch {
-            print("❌ TranscriptionManager: Initialization failed: \(error.localizedDescription)")
+            debugLog("❌ TranscriptionManager: Initialization failed: \(error.localizedDescription)")
             isLoading = false
             isReady = false
             statusMessage = "\(L10n.isFrench ? "Erreur" : "Error"): \(error.localizedDescription)"
@@ -154,7 +154,7 @@ class TranscriptionManager: ObservableObject {
         }
         
         do {
-            print("👯‍♀️ TranscriptionManager: Downloading Diarizer models...")
+            debugLog("👯‍♀️ TranscriptionManager: Downloading Diarizer models...")
             // The library handles downloading if needed
             let diarizerDir = Self.diarizerModelsDirectory()
             let models = try await DiarizerModels.downloadIfNeeded(to: diarizerDir)
@@ -162,7 +162,7 @@ class TranscriptionManager: ObservableObject {
             
             // Clean up legacy FluidAudio diarizer directory
             Self.migrateLegacyDiarizerModels()
-            print("✅ TranscriptionManager: Diarizer models ready")
+            debugLog("✅ TranscriptionManager: Diarizer models ready")
             
             await MainActor.run {
                 self.progress = 1.0
@@ -170,7 +170,7 @@ class TranscriptionManager: ObservableObject {
                 self.isLoading = false
             }
         } catch {
-            print("❌ TranscriptionManager: Failed to download diarizer models: \(error)")
+            debugLog("❌ TranscriptionManager: Failed to download diarizer models: \(error)")
             await MainActor.run {
                 self.statusMessage = L10n.isFrench ? "Erreur téléchargement" : "Download error"
                 self.isLoading = false
@@ -184,11 +184,11 @@ class TranscriptionManager: ObservableObject {
         guard isReady, let fluidAsr = fluidAsr else { return }
         
         Task {
-            print("🔥 TranscriptionManager: Proactive pre-warm started...")
+            debugLog("🔥 TranscriptionManager: Proactive pre-warm started...")
             // Perform a small dummy transcription to wake up GPU/Metal
             let dummySamples = [Float](repeating: 0, count: 3200) // 0.2s at 16kHz
             _ = try? await fluidAsr.transcribe(dummySamples)
-            print("✅ TranscriptionManager: Proactive pre-warm complete")
+            debugLog("✅ TranscriptionManager: Proactive pre-warm complete")
         }
     }
 
@@ -234,7 +234,7 @@ class TranscriptionManager: ObservableObject {
         
         // Return the specific target model path
         let targetPath = baseDir.appendingPathComponent(Constants.targetModelName)
-        print("📂 TranscriptionManager: Looking for target model: \(targetPath.lastPathComponent)")
+        debugLog("📂 TranscriptionManager: Looking for target model: \(targetPath.lastPathComponent)")
         return targetPath
     }
     
@@ -250,7 +250,7 @@ class TranscriptionManager: ObservableObject {
         
         for url in contents {
             if url.hasDirectoryPath && url.lastPathComponent != Constants.targetModelName {
-                print("🧹 TranscriptionManager: Purging old model version: \(url.lastPathComponent)")
+                debugLog("🧹 TranscriptionManager: Purging old model version: \(url.lastPathComponent)")
                 try? fileManager.removeItem(at: url)
             }
         }
@@ -262,7 +262,7 @@ class TranscriptionManager: ObservableObject {
         let legacyDir = appSupport.appendingPathComponent("FluidAudio")
         
         if fileManager.fileExists(atPath: legacyDir.path) {
-            print("🧹 TranscriptionManager: Purging legacy FluidAudio directory...")
+            debugLog("🧹 TranscriptionManager: Purging legacy FluidAudio directory...")
             try? fileManager.removeItem(at: legacyDir)
         }
     }
@@ -279,24 +279,24 @@ class TranscriptionManager: ObservableObject {
         
         // Check if source exists
         guard fileManager.fileExists(atPath: sourceBase.path) else {
-            print("📂 Migration: Source directory not found (nothing downloaded?)")
+            debugLog("📂 Migration: Source directory not found (nothing downloaded?)")
             return
         }
         
         // Find any model directory in source
         let contents = try fileManager.contentsOfDirectory(at: sourceBase, includingPropertiesForKeys: nil)
         guard let modelDir = contents.first(where: { $0.hasDirectoryPath }) else {
-            print("📂 Migration: No model directory found in source")
+            debugLog("📂 Migration: No model directory found in source")
             return
         }
         
         let modelName = modelDir.lastPathComponent
-        print("📂 Migration: Found model '\(modelName)'")
+        debugLog("📂 Migration: Found model '\(modelName)'")
         
         let destModel = destBase.appendingPathComponent(modelName)
         
         if !fileManager.fileExists(atPath: destModel.path) {
-            print("📂 Migration: Moving \(modelName) to SupraSonic...")
+            debugLog("📂 Migration: Moving \(modelName) to SupraSonic...")
             
             // Create parent directories
             try fileManager.createDirectory(at: destBase, withIntermediateDirectories: true)
@@ -304,9 +304,9 @@ class TranscriptionManager: ObservableObject {
             // Move the whole model folder
             try fileManager.moveItem(at: modelDir, to: destModel)
             
-            print("✅ Migration: Complete")
+            debugLog("✅ Migration: Complete")
         } else {
-            print("📂 Migration: Destination already exists. Skipping.")
+            debugLog("📂 Migration: Destination already exists. Skipping.")
         }
         
         // Clean up legacy directory
@@ -378,7 +378,7 @@ extension TranscriptionManager {
                 let dest = destDir.appendingPathComponent(item.lastPathComponent)
                 if !fm.fileExists(atPath: dest.path) {
                     try? fm.moveItem(at: item, to: dest)
-                    print("📂 Diarizer Migration: Moved \(item.lastPathComponent) to SupraSonic")
+                    debugLog("📂 Diarizer Migration: Moved \(item.lastPathComponent) to SupraSonic")
                 }
             }
         }
@@ -387,7 +387,7 @@ extension TranscriptionManager {
         let fluidAudioRoot = appSupport.appendingPathComponent("FluidAudio")
         if fm.fileExists(atPath: fluidAudioRoot.path) {
             try? fm.removeItem(at: fluidAudioRoot)
-            print("🧹 Diarizer Migration: Removed legacy FluidAudio directory")
+            debugLog("🧹 Diarizer Migration: Removed legacy FluidAudio directory")
         }
     }
     
@@ -420,7 +420,7 @@ extension TranscriptionManager {
         let modelsDir = appSupport.appendingPathComponent("SupraSonic/models")
         if fm.fileExists(atPath: modelsDir.path) {
             try? fm.removeItem(at: modelsDir)
-            print("🗑️ Deleted all SupraSonic models")
+            debugLog("🗑️ Deleted all SupraSonic models")
         }
     }
 }

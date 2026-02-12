@@ -130,7 +130,7 @@ class PermissionsManager {
     /// This is used to fix "stale" TCC states where macOS doesn't recognize the permission change.
     func resetAccessibility() {
         guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        print("🛠️ Permissions: Resetting TCC for \(bundleID)...")
+        debugLog("🛠️ Permissions: Resetting TCC for \(bundleID)...")
         
         // Ensure onboarding reappears on relaunch
         UserDefaults.standard.set(false, forKey: "SupraSonicSetupCompleted")
@@ -148,7 +148,7 @@ class PermissionsManager {
     /// This uses a decoupled process (open -n) to ensure a fresh instance starts even as the current one terminates.
     func relaunchApp() {
         let appURL = Bundle.main.bundleURL
-        print("🚀 Permissions: Relaunching from \(appURL.path)...")
+        debugLog("🚀 Permissions: Relaunching from \(appURL.path)...")
         
         // Spawn a decoupled 'open' command to launch a new instance
         let process = Process()
@@ -162,7 +162,7 @@ class PermissionsManager {
                 NSApp.terminate(nil)
             }
         } catch {
-            print("❌ Permissions: Failed to relaunch: \(error)")
+            debugLog("❌ Permissions: Failed to relaunch: \(error)")
             // Fallback: just quit and hope user relanches
             NSApp.terminate(nil)
         }

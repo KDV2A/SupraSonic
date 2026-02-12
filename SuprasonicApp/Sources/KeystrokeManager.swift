@@ -26,7 +26,7 @@ class KeystrokeManager {
         pasteboard.clearContents()
         pasteboard.setString(textToInsert, forType: .string)
         
-        print("📋 KeystrokeManager: Text copied to clipboard")
+        debugLog("📋 KeystrokeManager: Text copied to clipboard")
         
         // 2. Try to paste with a brief delay (100ms) to ensure clipboard is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -58,10 +58,10 @@ class KeystrokeManager {
     
     private func handlePasteFailure() {
         consecutivePasteFailures += 1
-        print("⚠️ KeystrokeManager: Paste failure count: \(consecutivePasteFailures)/\(maxConsecutiveFailures)")
+        debugLog("⚠️ KeystrokeManager: Paste failure count: \(consecutivePasteFailures)/\(maxConsecutiveFailures)")
         
         if consecutivePasteFailures >= maxConsecutiveFailures {
-            print("❌ KeystrokeManager: Multiple paste failures detected, notifying user")
+            debugLog("❌ KeystrokeManager: Multiple paste failures detected, notifying user")
             consecutivePasteFailures = 0
             DispatchQueue.main.async {
                 self.onPasteError?()
@@ -75,7 +75,7 @@ class KeystrokeManager {
     }
     
     private func performPasteViaAppleScript() -> Bool {
-        print("📋 KeystrokeManager: Attempting paste via AppleScript")
+        debugLog("📋 KeystrokeManager: Attempting paste via AppleScript")
         let script = """
         tell application "System Events"
             keystroke "v" using command down
@@ -87,10 +87,10 @@ class KeystrokeManager {
             appleScript.executeAndReturnError(&error)
             
             if error == nil {
-                print("✅ KeystrokeManager: AppleScript paste success")
+                debugLog("✅ KeystrokeManager: AppleScript paste success")
                 return true
             } else {
-                print("⚠️ KeystrokeManager: AppleScript paste failed: \(String(describing: error))")
+                debugLog("⚠️ KeystrokeManager: AppleScript paste failed: \(String(describing: error))")
                 return false
             }
         }
@@ -99,12 +99,12 @@ class KeystrokeManager {
     
     @discardableResult
     private func performPasteViaCGEvent() -> Bool {
-        print("🎯 KeystrokeManager: Attempting paste via CGEvent (Accessibility)")
+        debugLog("🎯 KeystrokeManager: Attempting paste via CGEvent (Accessibility)")
         
         // Check if we have accessibility permissions
         let trusted = AXIsProcessTrusted()
         if !trusted {
-            print("❌ KeystrokeManager: Accessibility not trusted")
+            debugLog("❌ KeystrokeManager: Accessibility not trusted")
             return false
         }
         
@@ -116,7 +116,7 @@ class KeystrokeManager {
               let pbtUp = CGEvent(keyboardEventSource: source, virtualKey: cmdKey, keyDown: false),
               let vDown = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: true),
               let vUp = CGEvent(keyboardEventSource: source, virtualKey: vKey, keyDown: false) else {
-            print("❌ KeystrokeManager: Failed to create CGEvents")
+            debugLog("❌ KeystrokeManager: Failed to create CGEvents")
             return false
         }
         
@@ -129,7 +129,7 @@ class KeystrokeManager {
         vUp.post(tap: .cghidEventTap)
         pbtUp.post(tap: .cghidEventTap)
         
-        print("✅ KeystrokeManager: CGEvent paste executed")
+        debugLog("✅ KeystrokeManager: CGEvent paste executed")
         return true
     }
 }

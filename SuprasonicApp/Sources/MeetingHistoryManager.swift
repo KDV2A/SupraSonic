@@ -23,9 +23,9 @@ class MeetingHistoryManager {
         do {
             let data = try encoder.encode(meeting)
             try data.write(to: fileURL)
-            print("✅ MeetingHistory: Saved meeting \(meeting.id)")
+            debugLog("✅ MeetingHistory: Saved meeting \(meeting.id)")
         } catch {
-            print("❌ MeetingHistory: Failed to save meeting: \(error)")
+            debugLog("❌ MeetingHistory: Failed to save meeting: \(error)")
         }
     }
     
@@ -40,7 +40,7 @@ class MeetingHistoryManager {
                 let data = try Data(contentsOf: url)
                 return try decoder.decode(Meeting.self, from: data)
             } catch {
-                print("⚠️ MeetingHistory: Failed to load meeting from \(url.lastPathComponent): \(error)")
+                debugLog("⚠️ MeetingHistory: Failed to load meeting from \(url.lastPathComponent): \(error)")
                 return nil
             }
         }

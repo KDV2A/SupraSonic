@@ -99,7 +99,7 @@ class AudioConverter {
             totalSamples = Array(bufferPointer)
         }
         
-        print("✅ AudioConverter: Converted \(inputURL.lastPathComponent) -> \(totalSamples.count) samples")
+        debugLog("✅ AudioConverter: Converted \(inputURL.lastPathComponent) -> \(totalSamples.count) samples")
         
         return (totalSamples, outputURL)
     }

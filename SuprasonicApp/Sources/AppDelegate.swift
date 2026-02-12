@@ -33,13 +33,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private var meetingDetailWindow: MeetingDetailWindow?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("🎬 applicationDidFinishLaunching")
+        debugLog("🎬 applicationDidFinishLaunching")
         NSApp.activate(ignoringOtherApps: true)
         
         // 1. Check if running from DMG (Anti-Translocation)
         let bundlePath = Bundle.main.bundleURL.path
         if bundlePath.contains("/Volumes/") && !bundlePath.contains("/Users/") {
-            print("🚫 App: Running from DMG/Translocated. Blocking.")
+            debugLog("🚫 App: Running from DMG/Translocated. Blocking.")
             let alert = NSAlert()
             alert.messageText = L10n.isFrench ? "Installation requise" : "Installation Required"
             alert.informativeText = L10n.isFrench 
@@ -101,10 +101,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     private func shouldShowSetup() -> Bool {
         // 1. If setup was never completed, ALWAYS show it
         let setupCompleted = UserDefaults.standard.bool(forKey: Constants.Keys.setupCompleted)
-        print("🚀 Onboarding debug: setupCompleted=\(setupCompleted)")
+        debugLog("🚀 Onboarding debug: setupCompleted=\(setupCompleted)")
         
         if !setupCompleted {
-            print("🚀 App: Onboarding never completed. Showing setup.")
+            debugLog("🚀 App: Onboarding never completed. Showing setup.")
             return true
         }
         
@@ -116,9 +116,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let hasAccessibility = PermissionsManager.shared.checkAccessibilityPermission()
         let hasModel = ModelManager.shared.hasAnyModel()
         
-        if !hasMic { print("⚠️ App Warning: Missing Microphone Permission (Setup skipped by preference)") }
-        if !hasAccessibility { print("⚠️ App Warning: Missing Accessibility Permission (Setup skipped by preference)") }
-        if !hasModel { print("⚠️ App Warning: Missing ML Model (Setup skipped by preference)") }
+        if !hasMic { debugLog("⚠️ App Warning: Missing Microphone Permission (Setup skipped by preference)") }
+        if !hasAccessibility { debugLog("⚠️ App Warning: Missing Accessibility Permission (Setup skipped by preference)") }
+        if !hasModel { debugLog("⚠️ App Warning: Missing ML Model (Setup skipped by preference)") }
         
         return false
     }
@@ -132,7 +132,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     
     @MainActor
     @objc private func onSetupComplete() {
-        print("✅ App: Setup complete signal received")
+        debugLog("✅ App: Setup complete signal received")
         
         // 1. Remove observer immediately
         NotificationCenter.default.removeObserver(self, name: Constants.NotificationNames.setupComplete, object: nil)
@@ -150,7 +150,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             
-            print("🚀 App: Starting transition sequence...")
+            debugLog("🚀 App: Starting transition sequence...")
             self.setupWindow = nil
             
             if SettingsManager.shared.showInDock {
@@ -169,19 +169,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
     
     private func proceedWithApp() {
-        print("🚀 App: proceedWithApp started")
+        debugLog("🚀 App: proceedWithApp started")
         
         // Initialize Rust Core
             // Start Rust Core
             // Initialize AppState
-            print("🚀 App: Initializing AppState...")
+            debugLog("🚀 App: Initializing AppState...")
             // Provide path for persistent speaker registry
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let speakerPath = appSupport.appendingPathComponent("SupraSonic/speakers.json").path
             
             let state = AppState()
             self.rustState = state
-            print("🦀 Rust Core Initialized (Speakers: \(speakerPath))")
+            debugLog("🦀 Rust Core Initialized (Speakers: \(speakerPath))")
             
             // Set listener for raw audio data
             state.setListener(listener: RustAudioListener(delegate: self))
@@ -189,16 +189,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             // Initialize ML Engine (Parakeet v3 via FluidAudio)
             Task {
                 do {
-                    print("🚀 App: TranscriptionManager.shared.initialize()...")
+                    debugLog("🚀 App: TranscriptionManager.shared.initialize()...")
                     try await TranscriptionManager.shared.initialize()
-                    print("✅ ML Engine (Parakeet v3) Initialized")
+                    debugLog("✅ ML Engine (Parakeet v3) Initialized")
                     
                     // Initialize Meeting Manager
-                    print("🚀 App: MeetingManager.shared.setRustState()...")
+                    debugLog("🚀 App: MeetingManager.shared.setRustState()...")
                     MeetingManager.shared.setRustState(state)
-                    print("✅ Meeting Manager Initialized")
+                    debugLog("✅ Meeting Manager Initialized")
                 } catch {
-                    print("❌ ML/Meeting initialization failed: \(error)")
+                    debugLog("❌ ML/Meeting initialization failed: \(error)")
                 }
             }
     
@@ -207,7 +207,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         
         // Initialize LLM Engine if enabled
         let llmSuffix = SettingsManager.shared.llmProvider != .none ? ", Voice Triggers for AI Skills." : "."
-        print("🎤 \(Constants.appName) ready! Hold Right Command to record\(llmSuffix)")
+        debugLog("🎤 \(Constants.appName) ready! Hold Right Command to record\(llmSuffix)")
     }
     
     private func checkCompatibility() -> Bool {
@@ -245,7 +245,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     
     @MainActor
     @objc private func onModelSelectionChanged() {
-        print("🔄 Settings changed, reinitializing...")
+        debugLog("🔄 Settings changed, reinitializing...")
         initializeTranscription()
     }
     
@@ -306,17 +306,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         Task { @MainActor in
             do {
                 if TranscriptionManager.shared.isReady {
-                    print("✅ Parakeet already initialized.")
+                    debugLog("✅ Parakeet already initialized.")
                     return
                 }
 
                 let language = ModelManager.shared.selectedLanguage
                 
-                print("📦 Initializing Parakeet with language: \(language)")
+                debugLog("📦 Initializing Parakeet with language: \(language)")
                 try await TranscriptionManager.shared.initialize(language: language)
-                print("✅ Parakeet ready!")
+                debugLog("✅ Parakeet ready!")
             } catch {
-                print("❌ Failed to initialize Parakeet: \(error)")
+                debugLog("❌ Failed to initialize Parakeet: \(error)")
                 // Show alert to user
                 showTranscriptionError(error)
             }
@@ -363,17 +363,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     func requestMicrophonePermission() {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
-            print("✅ Microphone access granted")
+            debugLog("✅ Microphone access granted")
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 if granted {
-                    print("✅ Microphone access granted")
+                    debugLog("✅ Microphone access granted")
                 } else {
-                    print("❌ Microphone access denied")
+                    debugLog("❌ Microphone access denied")
                 }
             }
         case .denied, .restricted:
-            print("❌ Microphone access denied/restricted")
+            debugLog("❌ Microphone access denied/restricted")
             showMicrophoneAlert()
         @unknown default:
             break
@@ -435,7 +435,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 }
             }
             
-            print("🎨 Status bar icon source: \(iconSource), loaded: \(icon != nil)")
+            debugLog("🎨 Status bar icon source: \(iconSource), loaded: \(icon != nil)")
             
             if let icon = icon {
                 icon.isTemplate = true
@@ -443,7 +443,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 button.image = icon
             } else {
                 // Fallback to system symbol
-                print("⚠️ Using fallback system symbol for status bar")
+                debugLog("⚠️ Using fallback system symbol for status bar")
                 button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: Constants.appName)
                 button.image?.isTemplate = true
             }
@@ -588,11 +588,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             
             if mode == .pushToTalk {
                 if keyPressed && !pushToTalkDown {
-                    print("⌨️ Hotkey: PTT Down")
+                    debugLog("⌨️ Hotkey: PTT Down")
                     pushToTalkDown = true
                     startRecording()
                 } else if keyReleased && pushToTalkDown {
-                    print("⌨️ Hotkey: PTT Up")
+                    debugLog("⌨️ Hotkey: PTT Up")
                     pushToTalkDown = false
                     stopRecording()
                 }
@@ -649,23 +649,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
     
     @objc @MainActor private func handleWake() {
-        print("☀️ System: Wake detected. Triggering pre-warm...")
+        debugLog("☀️ System: Wake detected. Triggering pre-warm...")
         TranscriptionManager.shared.preWarm()
     }
     
     @objc @MainActor private func handleAudioConfigChange() {
-        print("🔄 Audio: Configuration change detected.")
-        // restartAudioEngine() // Legacy disabled
+        debugLog("🔄 Audio: Configuration change detected.")
     }
-    
-    // private func restartAudioEngine() { ... }
-    
-    func setupAudioEngine() {
-        // Disabled for Rust Migration
-        print("⚠️ Legacy Audio Engine setup skipped.")
-    }
-    
-    // private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) { ... }
     
     func startRecording() {
         guard !isRecording else { return }
@@ -674,9 +664,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         if let state = rustState {
             do {
                 try state.startRecording()
-                print("🦀 Rust: Start Capture")
+                debugLog("🦀 Rust: Start Capture")
             } catch {
-                print("❌ Rust Start Failed: \(error)")
+                debugLog("❌ Rust Start Failed: \(error)")
             }
         }
         
@@ -685,12 +675,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Capture any selected text from the active app BEFORE we start recording
         capturedSelectedText = getSelectedText()
         if let selected = capturedSelectedText {
-            print("📎 App: Captured selected text (\(selected.count) chars): \(selected.prefix(80))...")
+            debugLog("📎 App: Captured selected text (\(selected.count) chars): \(selected.prefix(80))...")
         }
         
         // Mute system sound if enabled
         if SettingsManager.shared.muteSystemSoundDuringRecording {
-            print("🔇 Muting system audio...")
+            debugLog("🔇 Muting system audio...")
             // Save current volume and mute
             savedVolumeLevel = getCurrentVolume()
             runAppleScript("set volume output volume 0")
@@ -701,7 +691,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             self.overlayWindow?.show()
         }
         
-        print("🎙️ Recording started...")
+        debugLog("🎙️ Recording started...")
     }
     
     func stopRecording() {
@@ -711,9 +701,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         if let state = rustState {
             do {
                 try state.stopRecording()
-                print("🦀 Rust: Stop Capture")
+                debugLog("🦀 Rust: Stop Capture")
             } catch {
-                 print("❌ Rust Stop Failed: \(error)")
+                 debugLog("❌ Rust Stop Failed: \(error)")
             }
         }
         
@@ -722,7 +712,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // Unmute system sound if enabled
         if SettingsManager.shared.muteSystemSoundDuringRecording {
             let restoreLevel = savedVolumeLevel ?? 50
-            print("🔊 Restoring system audio to \(restoreLevel)%")
+            debugLog("🔊 Restoring system audio to \(restoreLevel)%")
             runAppleScript("set volume output volume \(restoreLevel)")
             savedVolumeLevel = nil
         }
@@ -731,7 +721,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             self.overlayWindow?.hide()
         }
         
-        print("⏹️ Recording stopped.")
+        debugLog("⏹️ Recording stopped.")
     }
     
     func handleTranscriptionResult(_ text: String) {
@@ -752,10 +742,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             }
             
             do {
-                print("🧠 App: Starting Parakeet v3 inference...")
+                debugLog("🧠 App: Starting Parakeet v3 inference...")
                 let text = try await TranscriptionManager.shared.transcribe(audioSamples: audioData)
                 
-                print("📝 Parakeet Result: \(text)")
+                debugLog("📝 Parakeet Result: \(text)")
                 if !text.isEmpty {
                     let finalOutput = text
                     
@@ -768,7 +758,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     let lowerText = cleanText.lowercased()
                     
                     if let triggeredSkill = skills.first(where: { lowerText.starts(with: $0.trigger.lowercased()) }) {
-                        print("🤖 App: AI Skill Triggered: \(triggeredSkill.name)")
+                        debugLog("🤖 App: AI Skill Triggered: \(triggeredSkill.name)")
                         
                         self.overlayWindow?.updateStatusLabel(L10n.isFrench ? "Assistant IA: Réflexion..." : "AI Assistant: Thinking...")
                         self.overlayWindow?.show()
@@ -785,14 +775,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                         Task {
                             do {
                                 let result = try await LLMManager.shared.processSkill(skill: triggeredSkill, text: inputText, selectedText: selectedContext)
-                                print("🤖 App: AI Skill Result received")
+                                debugLog("🤖 App: AI Skill Result received")
                                 
                                 await MainActor.run {
                                     self.overlayWindow?.hide()
                                     self.handleTranscriptionResult(result)
                                 }
                             } catch {
-                                print("❌ App: AI Skill failed: \(error)")
+                                debugLog("❌ App: AI Skill failed: \(error)")
                                 await MainActor.run {
                                     self.overlayWindow?.hide()
                                     self.showAPIErrorAlert(error: error)
@@ -805,7 +795,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     }
                 }
             } catch {
-                print("❌ Transcription failed: \(error)")
+                debugLog("❌ Transcription failed: \(error)")
             }
         }
     }
@@ -821,10 +811,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             var error: NSDictionary?
             script.executeAndReturnError(&error)
             if let error = error {
-                print("❌ AppleScript error: \(error)")
+                debugLog("❌ AppleScript error: \(error)")
             }
         } else {
-            print("❌ AppleScript: Failed to create script from: \(source)")
+            debugLog("❌ AppleScript: Failed to create script from: \(source)")
         }
     }
     
@@ -947,7 +937,7 @@ class RustAudioListener: TranscriptionListener {
     }
     
     func onAudioData(audioData: [Float]) {
-        print("🎙️ Rust Audio Captured: \(audioData.count) samples")
+        debugLog("🎙️ Rust Audio Captured: \(audioData.count) samples")
         
         Task { @MainActor in
             if MeetingManager.shared.isMeetingActive {
@@ -1077,9 +1067,9 @@ extension AppDelegate {
         do {
             try process.run()
             process.waitUntilExit()
-            print("✅ Accessibility permissions reset for \(bundleId)")
+            debugLog("✅ Accessibility permissions reset for \(bundleId)")
         } catch {
-            print("⚠️ Failed to reset accessibility permissions: \(error)")
+            debugLog("⚠️ Failed to reset accessibility permissions: \(error)")
         }
     }
     

@@ -18,7 +18,7 @@ class LLMManager: ObservableObject {
         // Validation check on startup
         let provider = SettingsManager.shared.llmProvider
         if provider != .none {
-            print("✅ LLMManager: Initialized with provider: \(provider.displayName)")
+            debugLog("✅ LLMManager: Initialized with provider: \(provider.displayName)")
         }
     }
     
@@ -56,7 +56,7 @@ class LLMManager: ObservableObject {
         
         let (_, response) = try await session.data(for: request)
         if let httpResponse = response as? HTTPURLResponse {
-            print("🌐 OpenAI Validation Status: \(httpResponse.statusCode)")
+            debugLog("🌐 OpenAI Validation Status: \(httpResponse.statusCode)")
             if httpResponse.statusCode == 200 {
                 // OpenAI doesn't easily return the "best" model, but we can assume success means GPT-4o level for this plan
                 // Or we could list models, but that's a separate call. For now, let's just return a success label.
@@ -81,11 +81,11 @@ class LLMManager: ObservableObject {
         
         let (data, response) = try await session.data(for: request)
         if let httpResponse = response as? HTTPURLResponse {
-            print("🌐 Gemini Validation Status: \(httpResponse.statusCode)")
+            debugLog("🌐 Gemini Validation Status: \(httpResponse.statusCode)")
             
             // 429 = rate limited but key IS valid
             if httpResponse.statusCode == 429 {
-                print("⚠️ Gemini: Rate limited (429) — key is valid but throttled")
+                debugLog("⚠️ Gemini: Rate limited (429) — key is valid but throttled")
                 let displayName = Constants.GeminiModel.allModels.first(where: { $0.id == modelId })?.displayName ?? modelId
                 return (true, "\(displayName) (Rate Limited)")
             }
@@ -100,7 +100,7 @@ class LLMManager: ObservableObject {
             
             // 400/403 = invalid key
             let errorBody = String(data: data, encoding: .utf8) ?? ""
-            print("❌ Gemini Validation Error: \(errorBody.prefix(200))")
+            debugLog("❌ Gemini Validation Error: \(errorBody.prefix(200))")
         }
         return (false, nil)
     }
@@ -193,23 +193,23 @@ class LLMManager: ObservableObject {
         let provider = SettingsManager.shared.llmProvider
         var apiKey = ""
         
-        print("🤖 LLM: processSkill called — provider=\(provider.rawValue), skill='\(skill.name)', text='\(text.prefix(50))', hasSelection=\(selectedText != nil)")
+        debugLog("🤖 LLM: processSkill called — provider=\(provider.rawValue), skill='\(skill.name)', text='\(text.prefix(50))', hasSelection=\(selectedText != nil)")
         
         switch provider {
         case .openai: apiKey = SettingsManager.shared.openaiApiKey
         case .google: apiKey = SettingsManager.shared.geminiApiKey
         case .anthropic: apiKey = SettingsManager.shared.anthropicApiKey
         case .none:
-            print("❌ LLM: No AI Provider configured")
+            debugLog("❌ LLM: No AI Provider configured")
             throw NSError(domain: "LLMManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "No AI Provider Configured"])
         }
         
         if apiKey.isEmpty {
-            print("❌ LLM: API Key is empty for \(provider.displayName)")
+            debugLog("❌ LLM: API Key is empty for \(provider.displayName)")
             throw NSError(domain: "LLMManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "API Key missing for \(provider.displayName)"])
         }
         
-        print("🤖 LLM: API key present (\(apiKey.prefix(8))...), calling \(provider.displayName)...")
+        debugLog("🤖 LLM: API key present (\(apiKey.prefix(8))...), calling \(provider.displayName)...")
         
         self.isLoading = true
         self.progress = 0.5
@@ -233,7 +233,7 @@ class LLMManager: ObservableObject {
             User request:
             \(text)
             """
-            print("🤖 LLM: Prompt includes selected text context (\(selectedText.count) chars)")
+            debugLog("🤖 LLM: Prompt includes selected text context (\(selectedText.count) chars)")
         } else {
             prompt = """
             \(skill.prompt)
@@ -246,15 +246,15 @@ class LLMManager: ObservableObject {
         switch provider {
         case .openai:
             let response = try await callOpenAI(apiKey: apiKey, prompt: prompt, isJson: false)
-            print("🤖 OpenAI Response (first 50 chars): \(response.prefix(50))")
+            debugLog("🤖 OpenAI Response (first 50 chars): \(response.prefix(50))")
             return response
         case .google:
             let response = try await callGemini(apiKey: apiKey, prompt: prompt, isJson: false)
-            print("🤖 Gemini Response (first 50 chars): \(response.prefix(50))")
+            debugLog("🤖 Gemini Response (first 50 chars): \(response.prefix(50))")
             return response
         case .anthropic:
             let response = try await callAnthropic(apiKey: apiKey, prompt: prompt)
-            print("🤖 Anthropic Response (first 50 chars): \(response.prefix(50))")
+            debugLog("🤖 Anthropic Response (first 50 chars): \(response.prefix(50))")
             return response
         case .none:
             throw NSError(domain: "LLMManager", code: 3, userInfo: [NSLocalizedDescriptionKey: "No provider"])
@@ -339,7 +339,7 @@ class LLMManager: ObservableObject {
             
             if let httpResponse = response as? HTTPURLResponse {
                 lastStatusCode = httpResponse.statusCode
-                print("🌐 Gemini API Status: \(httpResponse.statusCode)")
+                debugLog("🌐 Gemini API Status: \(httpResponse.statusCode)")
                 
                 if httpResponse.statusCode == 200 {
                     let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
@@ -349,7 +349,7 @@ class LLMManager: ObservableObject {
                 // Retry on 429 rate limit
                 if httpResponse.statusCode == 429 && attempt < 2 {
                     let delay = Double(attempt + 1) * 5.0
-                    print("⏳ Gemini: Rate limited, retrying in \(delay)s (attempt \(attempt + 1)/3)...")
+                    debugLog("⏳ Gemini: Rate limited, retrying in \(delay)s (attempt \(attempt + 1)/3)...")
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
@@ -358,7 +358,7 @@ class LLMManager: ObservableObject {
         }
         
         let errorMsg = String(data: lastData ?? Data(), encoding: .utf8) ?? "Unknown Error"
-        print("❌ Gemini API Error: \(errorMsg.prefix(200))")
+        debugLog("❌ Gemini API Error: \(errorMsg.prefix(200))")
         throw NSError(domain: "Gemini", code: lastStatusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
     }
     
@@ -383,10 +383,10 @@ class LLMManager: ObservableObject {
         let (data, response) = try await session.data(for: request)
         
         if let httpResponse = response as? HTTPURLResponse {
-            print("🌐 Anthropic API Status: \(httpResponse.statusCode)")
+            debugLog("🌐 Anthropic API Status: \(httpResponse.statusCode)")
             if httpResponse.statusCode != 200 {
                 let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown Error"
-                print("❌ Anthropic API Error: \(errorMsg.prefix(200))")
+                debugLog("❌ Anthropic API Error: \(errorMsg.prefix(200))")
                 throw NSError(domain: "Anthropic", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: errorMsg])
             }
         }

@@ -1,4 +1,13 @@
 import Cocoa
+import os.log
+
+/// Lightweight debug-only logger. Stripped from release builds.
+@inline(__always)
+func debugLog(_ message: @autoclosure () -> String) {
+    #if DEBUG
+    print(message())
+    #endif
+}
 
 struct Constants {
     // MARK: - Branding

@@ -2114,9 +2114,9 @@ private func createHistoryView() -> NSView {
         
         // Check for silence
         let maxAmp = buffer.reduce(0) { max($0, abs($1)) }
-        print("📊 Enrollment: Audio max amplitude: \(maxAmp)")
+        debugLog("📊 Enrollment: Audio max amplitude: \(maxAmp)")
         if maxAmp < 0.005 { // Increased threshold slightly
-             print("❌ Enrollment: Silence detected (Max Amp: \(maxAmp))")
+             debugLog("❌ Enrollment: Silence detected (Max Amp: \(maxAmp))")
              let alert = NSAlert()
              alert.messageText = L10n.isFrench ? "Aucun son détecté" : "No Audio Detected"
              alert.informativeText = L10n.isFrench ? "Le volume est trop bas ou le micro est muet. Veuillez vérifier vos réglages." : "Volume too low or microphone muted. Please check settings."
@@ -2133,7 +2133,7 @@ private func createHistoryView() -> NSView {
                     groupName: group,
                     audioSamples: buffer
                 )
-                print("✅ Enrollment: Successfully enrolled '\(profile.name)' with \(buffer.count) samples")
+                debugLog("✅ Enrollment: Successfully enrolled '\(profile.name)' with \(buffer.count) samples")
                 self.refreshSpeakerDirectory()
                 
                 let alert = NSAlert()
@@ -2154,15 +2154,15 @@ private func createHistoryView() -> NSView {
         guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(buffer.count)) else { return }
         pcmBuffer.frameLength = AVAudioFrameCount(buffer.count)
         if let data = pcmBuffer.floatChannelData {
-            data[0].assign(from: buffer, count: buffer.count)
+            data[0].update(from: buffer, count: buffer.count)
         }
         
         do {
             let audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
             try audioFile.write(from: pcmBuffer)
-            print("💾 Debug Audio saved to: \(url.path)")
+            debugLog("💾 Debug Audio saved to: \(url.path)")
         } catch {
-            print("❌ Failed to save debug audio: \(error)")
+            debugLog("❌ Failed to save debug audio: \(error)")
         }
     }
     
@@ -2532,7 +2532,7 @@ private func createVocabularyView() -> NSView {
                 }
             } catch {
                 DispatchQueue.main.async { [weak self] in
-                    print("❌ Validation failed: \(error.localizedDescription)")
+                    debugLog("❌ Validation failed: \(error.localizedDescription)")
                     self?.statusIndicator.contentTintColor = .systemRed
                     self?.statusIndicator.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Error")
                 }
@@ -2653,7 +2653,7 @@ private func createVocabularyView() -> NSView {
         process.arguments = ["reset", "Accessibility", bundleId]
         try? process.run()
         process.waitUntilExit()
-        print("✅ Uninstall: Accessibility permissions reset")
+        debugLog("✅ Uninstall: Accessibility permissions reset")
         
         // Step 3: Ask about AI models
         let modelSize = TranscriptionManager.totalModelsSize()
@@ -2678,7 +2678,7 @@ private func createVocabularyView() -> NSView {
                 let supDir = appSupport.appendingPathComponent("SupraSonic")
                 if fm.fileExists(atPath: supDir.path) {
                     try? fm.removeItem(at: supDir)
-                    print("🗑️ Uninstall: Deleted all SupraSonic data")
+                    debugLog("🗑️ Uninstall: Deleted all SupraSonic data")
                 }
             }
         }
@@ -2687,9 +2687,9 @@ private func createVocabularyView() -> NSView {
         let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
         do {
             try FileManager.default.trashItem(at: appURL, resultingItemURL: nil)
-            print("🗑️ Uninstall: App moved to trash")
+            debugLog("🗑️ Uninstall: App moved to trash")
         } catch {
-            print("⚠️ Uninstall: Could not move app to trash: \(error)")
+            debugLog("⚠️ Uninstall: Could not move app to trash: \(error)")
         }
         
         NSApp.terminate(nil)
